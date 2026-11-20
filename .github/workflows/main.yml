@@ -67,7 +67,10 @@ jobs:
               publish: null,
               asarUnpack: [
                 "dist/**/*",
-                "server/schema.sql"
+                "dist-server/sql-wasm.wasm",
+                "server/schema.sql",
+                "server/schema.sqlite.sql",
+                "server/sql-wasm.wasm"
               ],
               directories: {
                 output: "dist-electron",
@@ -75,9 +78,11 @@ jobs:
               },
               files: [
                 "dist/**/*",
-                "dist-server/server.cjs",
+                "dist-server/**/*",
                 "electron/**/*",
                 "server/schema.sql",
+                "server/schema.sqlite.sql",
+                "server/sql-wasm.wasm",
                 "package.json"
               ],
               extraMetadata: {
