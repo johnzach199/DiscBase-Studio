@@ -17,16 +17,16 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux
-            artifact_name: fedora-linux-packages
-            builder_args: --linux rpm AppImage
+            artifact_name: linux-appimage
+            builder_args: --linux AppImage
           - os: macos-latest
             platform: mac
-            artifact_name: macos-packages
+            artifact_name: macos-dmg
             builder_args: --mac dmg
           - os: windows-latest
             platform: windows
-            artifact_name: windows-packages
-            builder_args: --win nsis portable
+            artifact_name: windows-exe
+            builder_args: --win portable
 
     runs-on: ${{ matrix.os }}
 
@@ -44,10 +44,6 @@ jobs:
 
       - name: Install Electron & Electron Builder (dev build tools)
         run: npm install --no-save --legacy-peer-deps electron@35 electron-builder@25
-
-      - name: Install RPM build tools for Fedora .rpm
-        if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm binutils xz-utils bzip2
 
       - name: Ensure packaging metadata & electron-builder config
         shell: bash
@@ -88,27 +84,20 @@ jobs:
                 main: "electron/main.cjs"
               },
               win: {
-                target: ["nsis", "portable"]
+                target: ["portable"]
               },
               mac: {
                 target: ["dmg"],
                 category: "public.app-category.music"
               },
               linux: {
-                target: ["AppImage", "rpm"],
+                target: ["AppImage"],
                 executableName: "discbase-studio",
                 maintainer: "DiscBase Studio <support@discbase.local>",
                 vendor: "DiscBase Studio",
                 category: "AudioVideo",
                 synopsis: "Album & Song Catalog Workstation for MySQL",
                 description: "Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation."
-              },
-              rpm: {
-                compression: "bzip2",
-                fpm: [
-                  "--rpm-rpmbuild-define=_build_id_links none",
-                  "--rpm-rpmbuild-define=debug_package %{nil}"
-                ]
               }
             };
             fs.writeFileSync("electron-builder.ci.json", JSON.stringify(cfg, null, 2) + "\n");
@@ -127,14 +116,14 @@ jobs:
           DEBUG: electron-builder
         run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.ci.json --publish never
 
-      - name: Upload built executables to staging
+      - name: Stage executable for release job
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
+          retention-days: 1
           path: |
             dist-electron/*.exe
             dist-electron/*.dmg
-            dist-electron/*.rpm
             dist-electron/*.AppImage
           if-no-files-found: warn
 
@@ -148,14 +137,14 @@ jobs:
         with:
           path: release-assets
 
-      - name: Collect executables only
+      - name: Collect AppImage, DMG, and EXE only
         shell: bash
         run: |
           mkdir -p final-executables
-          find release-assets -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp -v {} final-executables/ \;
+          find release-assets -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp -v {} final-executables/ \;
           ls -la final-executables
 
-      - name: Upload executables to GitHub Release
+      - name: Upload executables directly to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
