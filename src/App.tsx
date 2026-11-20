@@ -169,6 +169,8 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       <TopBar
         activeTab={activeTab}
+        theme={theme}
+        onThemeChange={handleThemeChange}
         onNavigate={(tab) => {
           setSaveMessage(null);
           setSaveError(null);
@@ -177,15 +179,13 @@ export default function App() {
         onNewAlbum={handleNewAlbum}
       />
 
-      <main className="flex-1 w-full max-w-[1440px] mx-auto px-4 sm:px-6 py-6">
+      <main className="flex-1 w-full px-3 sm:px-6 lg:px-8 xl:px-10 py-5 sm:py-6">
         {activeTab === 'catalog' && (
           <CatalogBrowser
             albums={albums}
             loading={loadingCatalog}
             dbStatus={dbStatus}
             searchQuery={searchQuery}
-            theme={theme}
-            onThemeChange={handleThemeChange}
             onSearchChange={setSearchQuery}
             onOpenAlbum={handleOpenAlbum}
             onDeleteAlbum={handleDeleteAlbum}
@@ -202,8 +202,6 @@ export default function App() {
             saving={savingAlbum}
             saveMessage={saveMessage}
             saveError={saveError}
-            theme={theme}
-            onThemeChange={handleThemeChange}
             onChange={setEditingAlbum}
             onSave={handleSaveAlbum}
             onBackToCatalog={() => setActiveTab('catalog')}
@@ -213,8 +211,6 @@ export default function App() {
 
         {activeTab === 'import' && (
           <XlsxImporter
-            theme={theme}
-            onThemeChange={handleThemeChange}
             onImportComplete={handleImportComplete}
             onOpenInEditor={handleOpenParsedInEditor}
           />
@@ -223,8 +219,6 @@ export default function App() {
         {activeTab === 'mysql' && (
           <MysqlSettings
             dbStatus={dbStatus}
-            theme={theme}
-            onThemeChange={handleThemeChange}
             onStatusUpdated={handleStatusUpdated}
           />
         )}

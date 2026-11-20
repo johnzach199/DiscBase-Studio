@@ -12,19 +12,14 @@ import {
   Terminal,
 } from 'lucide-react';
 import type { DbStatus, MysqlConfig } from '../types/catalog';
-import { ThemeToggle, type ThemeMode } from './ThemeToggle';
 
 interface MysqlSettingsProps {
   dbStatus: DbStatus | null;
-  theme: ThemeMode;
-  onThemeChange: (theme: ThemeMode) => void;
   onStatusUpdated: (status: DbStatus) => Promise<void>;
 }
 
 export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
   dbStatus,
-  theme,
-  onThemeChange,
   onStatusUpdated,
 }) => {
   const [form, setForm] = useState<MysqlConfig>({
@@ -222,16 +217,13 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            MySQL Server &amp; Desktop Packaging
-          </h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Configure automatic MySQL Server connection credentials, switch appearance, and download the GitHub source &amp; YML bundle for Fedora, macOS, and Windows.
-          </p>
-        </div>
-        <ThemeToggle theme={theme} onChange={onThemeChange} />
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          MySQL Server &amp; Desktop Packaging
+        </h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Configure automatic MySQL Server connection credentials and download the GitHub source &amp; YML bundle for Fedora, macOS, and Windows.
+        </p>
       </div>
 
       {/* Active Connection Status Strip */}
@@ -428,7 +420,7 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
                   GitHub Source &amp; Desktop Executables
                 </h2>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={handleDownloadYmlFile}

@@ -16,18 +16,13 @@ import {
   createEmptyAlbum,
   validateAlbum,
 } from '../utils/catalogMath';
-import { ThemeToggle, type ThemeMode } from './ThemeToggle';
 
 interface XlsxImporterProps {
-  theme: ThemeMode;
-  onThemeChange: (theme: ThemeMode) => void;
   onImportComplete: (importedCount: number) => Promise<void>;
   onOpenInEditor: (album: Album) => void;
 }
 
 export const XlsxImporter: React.FC<XlsxImporterProps> = ({
-  theme,
-  onThemeChange,
   onImportComplete,
   onOpenInEditor,
 }) => {
@@ -161,9 +156,7 @@ export const XlsxImporter: React.FC<XlsxImporterProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <ThemeToggle theme={theme} onChange={onThemeChange} />
-
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <button
             type="button"
             onClick={() => setShowPasteBox((v) => !v)}
@@ -210,7 +203,7 @@ export const XlsxImporter: React.FC<XlsxImporterProps> = ({
           const f = e.dataTransfer.files?.[0];
           if (f) void handleFile(f);
         }}
-        className={`bg-white dark:bg-slate-900 border-2 border-dashed rounded-lg p-10 text-center transition-colors ${
+        className={`bg-white dark:bg-slate-900 border-2 border-dashed rounded-lg p-6 sm:p-10 text-center transition-colors ${
           dragActive
             ? 'border-blue-600 bg-blue-50/40 dark:bg-blue-950/30'
             : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600'

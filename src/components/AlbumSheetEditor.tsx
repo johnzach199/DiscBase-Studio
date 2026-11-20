@@ -18,15 +18,12 @@ import {
   createEmptySong,
   validateAlbum,
 } from '../utils/catalogMath';
-import { ThemeToggle, type ThemeMode } from './ThemeToggle';
 
 interface AlbumSheetEditorProps {
   album: Album;
   saving: boolean;
   saveMessage: string | null;
   saveError: string | null;
-  theme: ThemeMode;
-  onThemeChange: (theme: ThemeMode) => void;
   onChange: (album: Album) => void;
   onSave: () => Promise<void>;
   onBackToCatalog: () => void;
@@ -44,8 +41,6 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
   saving,
   saveMessage,
   saveError,
-  theme,
-  onThemeChange,
   onChange,
   onSave,
   onBackToCatalog,
@@ -205,18 +200,18 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
   return (
     <form onSubmit={handleFormSubmit} className="space-y-6">
       {/* Top Action Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-start sm:items-center gap-3 min-w-0">
           <button
             type="button"
             onClick={onBackToCatalog}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Catalog</span>
           </button>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 break-words">
               {album.id
                 ? `${album.catalog_number || 'Album'} — ${album.album_title || 'Untitled'}`
                 : 'New Album & Song Entry Sheet'}
@@ -227,9 +222,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <ThemeToggle theme={theme} onChange={onThemeChange} />
-
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           {album.id && onExportXlsx && (
             <button
               type="button"
@@ -281,8 +274,8 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
       )}
 
       {/* SECTION 1: GENERAL FIELDS (Γενικά Πεδία) */}
-      <section aria-labelledby="general-fields-heading" className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5">
-        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+      <section aria-labelledby="general-fields-heading" className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h2 id="general-fields-heading" className="text-base font-semibold text-slate-900 dark:text-slate-100">
               General Fields (Γενικά Πεδία Δίσκου)
@@ -291,12 +284,12 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
               Master disc identification, release metadata, and digital links
             </p>
           </div>
-          <div className="text-right font-mono-tabular text-xs text-slate-600 dark:text-slate-400">
+          <div className="sm:text-right font-mono-tabular text-xs text-slate-600 dark:text-slate-400 shrink-0">
             Album Time: <strong className="text-slate-900 dark:text-slate-100">{stats.formattedTime}</strong> ({stats.totalSeconds}s)
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label htmlFor="field-barcode" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Barcode
@@ -353,7 +346,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
             />
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="sm:col-span-2">
             <label htmlFor="field-album-title" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Album Title (Γενικός Τίτλος) *
             </label>
@@ -451,7 +444,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
             />
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="sm:col-span-2">
             <label htmlFor="field-phonographic" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Phonographic Company (Φων. Εταιρία)
             </label>
@@ -465,7 +458,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
             />
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="sm:col-span-2">
             <label htmlFor="field-featured-artists" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Featured Singers Line (for Compilations / ΔΙΑΦΟΡΟΙ)
             </label>
@@ -479,7 +472,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
             />
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="sm:col-span-2">
             <label htmlFor="field-playlist-link" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               CD Digital Playlist Link
             </label>
@@ -493,7 +486,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
             />
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="sm:col-span-2">
             <label htmlFor="field-physical-link" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Physical Product Web Link
             </label>
@@ -535,7 +528,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
             />
           </div>
 
-          <div className="lg:col-span-2">
+          <div className="sm:col-span-2">
             <label htmlFor="field-album-notes" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
               Album Notes (Σημειώσεις)
             </label>
@@ -598,7 +591,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                 <th className="py-2.5 px-2 border-r border-slate-200 dark:border-slate-700 w-16 text-center sticky left-0 z-20 bg-slate-100 dark:bg-slate-800">
                   A/A
                 </th>
-                <th className="py-2.5 px-2 border-r border-slate-300 dark:border-slate-700 min-w-[230px] sticky left-16 z-20 bg-slate-100 dark:bg-slate-800 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)]">
+                <th className="py-2.5 px-2 border-r border-slate-300 dark:border-slate-700 min-w-[200px] sm:min-w-[230px] sm:sticky sm:left-16 z-20 bg-slate-100 dark:bg-slate-800 sm:shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)]">
                   Title GR (Τίτλος)
                 </th>
                 <th className="py-2.5 px-2 border-r border-slate-200 dark:border-slate-700 min-w-[210px]">
@@ -689,7 +682,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       />
                     </td>
 
-                    <td className={`p-1 border-r border-slate-300 dark:border-slate-700 sticky left-16 z-10 shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)] ${stickyBg}`}>
+                    <td className={`p-1 border-r border-slate-300 dark:border-slate-700 sm:sticky sm:left-16 z-10 sm:shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)] ${stickyBg}`}>
                       <input
                         type="text"
                         title={song.title_gr}
@@ -1006,8 +999,8 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
       </section>
 
       {/* SECTION 3: MUSICIANS (Έπαιξαν οι μουσικοί) */}
-      <section aria-labelledby="musicians-heading" className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5">
-        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+      <section aria-labelledby="musicians-heading" className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h2 id="musicians-heading" className="text-base font-semibold text-slate-900 dark:text-slate-100">
               Musicians (Έπαιξαν οι μουσικοί)
@@ -1019,18 +1012,18 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
           <button
             type="button"
             onClick={addMusician}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 self-start sm:self-auto px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Musician</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
           {album.musicians.map((m, idx) => (
             <div
               key={idx}
-              className="flex items-center gap-2 p-2.5 border border-slate-200 dark:border-slate-800 rounded-md bg-slate-50/50 dark:bg-slate-800/40"
+              className="flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 border border-slate-200 dark:border-slate-800 rounded-md bg-slate-50/50 dark:bg-slate-800/40"
             >
               <input
                 type="text"
@@ -1038,24 +1031,26 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                 value={m.role}
                 onChange={(e) => updateMusician(idx, 'role', e.target.value)}
                 placeholder="Instrument / Role (e.g. Κλαρίνο)"
-                className="w-40 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full sm:w-44 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
-              <input
-                type="text"
-                aria-label={`Musician ${idx + 1} Full Name`}
-                value={m.name}
-                onChange={(e) => updateMusician(idx, 'name', e.target.value)}
-                placeholder="Musician Full Name..."
-                className="flex-1 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
-              <button
-                type="button"
-                onClick={() => removeMusician(idx)}
-                aria-label={`Remove musician ${idx + 1}`}
-                className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <input
+                  type="text"
+                  aria-label={`Musician ${idx + 1} Full Name`}
+                  value={m.name}
+                  onChange={(e) => updateMusician(idx, 'name', e.target.value)}
+                  placeholder="Musician Full Name..."
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeMusician(idx)}
+                  aria-label={`Remove musician ${idx + 1}`}
+                  className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded cursor-pointer shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))}
         </div>

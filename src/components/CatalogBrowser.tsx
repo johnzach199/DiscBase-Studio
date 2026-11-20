@@ -1,15 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Database, Download, ExternalLink, FileSpreadsheet, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
 import type { AlbumSummary, DbStatus } from '../types/catalog';
-import { ThemeToggle, type ThemeMode } from './ThemeToggle';
 
 interface CatalogBrowserProps {
   albums: AlbumSummary[];
   loading: boolean;
   dbStatus: DbStatus | null;
   searchQuery: string;
-  theme: ThemeMode;
-  onThemeChange: (theme: ThemeMode) => void;
   onSearchChange: (q: string) => void;
   onOpenAlbum: (id: number) => void;
   onDeleteAlbum: (id: number) => Promise<void>;
@@ -24,8 +21,6 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
   loading,
   dbStatus,
   searchQuery,
-  theme,
-  onThemeChange,
   onSearchChange,
   onOpenAlbum,
   onDeleteAlbum,
@@ -91,9 +86,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <ThemeToggle theme={theme} onChange={onThemeChange} />
-
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <button
             type="button"
             onClick={onGoToMysql}
@@ -167,7 +160,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 sm:gap-3">
           <label htmlFor="filter-category" className="sr-only">
             Filter by Music Category
           </label>
@@ -175,7 +168,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
             id="filter-category"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="flex-1 sm:flex-initial min-w-0 px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
           >
             <option value="all">All Categories</option>
             {categories.map((cat) => (
@@ -192,7 +185,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
             id="filter-format"
             value={formatFilter}
             onChange={(e) => setFormatFilter(e.target.value)}
-            className="px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
+            className="flex-1 sm:flex-initial min-w-0 px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-md bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
           >
             <option value="all">All Formats</option>
             {formats.map((fmt) => (
@@ -355,12 +348,12 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
       </div>
 
       {/* Subtle footer helper */}
-      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400 pt-1">
         <span>Click any album title or Open to inspect and edit tracks in spreadsheet formation.</span>
         <button
           type="button"
           onClick={onGoToMysql}
-          className="inline-flex items-center gap-1 text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+          className="inline-flex items-center gap-1 self-start sm:self-auto text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
         >
           <span>Manage MySQL Connection</span>
           <ExternalLink className="w-3 h-3" />
