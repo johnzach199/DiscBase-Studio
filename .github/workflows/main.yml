@@ -44,7 +44,7 @@ jobs:
 
       - name: Install RPM build tools for Fedora .rpm
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm binutils xz-utils
+        run: sudo apt-get update && sudo apt-get install -y rpm binutils xz-utils bzip2
 
       - name: Ensure packaging metadata & electron-builder config
         shell: bash
@@ -97,7 +97,7 @@ jobs:
                 description: "Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation."
               },
               rpm: {
-                compression: "gz",
+                compression: "bzip2",
                 fpm: [
                   "--rpm-rpmbuild-define=_build_id_links none",
                   "--rpm-rpmbuild-define=debug_package %{nil}"
