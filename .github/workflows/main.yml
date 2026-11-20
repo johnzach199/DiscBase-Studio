@@ -1,0 +1,73 @@
+name: Build Cross-Platform Desktop Executables
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build-executables:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact_name: fedora-linux-packages
+            builder_args: --linux rpm AppImage
+          - os: macos-latest
+            platform: mac
+            artifact_name: macos-packages
+            builder_args: --mac dmg zip
+          - os: windows-latest
+            platform: windows
+            artifact_name: windows-packages
+            builder_args: --win nsis portable
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Install Electron & Electron Builder (dev build tools)
+        run: npm install --no-save electron@35 electron-builder@25
+
+      - name: Install RPM build tools on Ubuntu for Fedora .rpm
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build frontend & bundled server
+        run: npm run build:electron
+
+      - name: Package executable for ${{ matrix.platform }}
+        run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.yml
+
+      - name: Upload built executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.dmg
+            dist-electron/*.zip
+            dist-electron/*.rpm
+            dist-electron/*.AppImage
+          if-no-files-found: warn
