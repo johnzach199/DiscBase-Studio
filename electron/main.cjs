@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -27,8 +27,25 @@ async function startLocalBackend() {
   return port;
 }
 
+ipcMain.on('window-minimize', () => {
+  if (mainWindow) mainWindow.minimize();
+});
+
+ipcMain.on('window-toggle-maximize', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow.maximize();
+  }
+});
+
+ipcMain.on('window-close', () => {
+  if (mainWindow) mainWindow.close();
+});
+
 async function createWindow() {
-  // Remove the File / Edit / View / Window / Help menu bar so the app looks clean
+  // Remove the native File / Edit / View / Window / Help menu bar completely
   Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
@@ -37,6 +54,7 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'DiscBase Studio',
+    frame: false,
     autoHideMenuBar: true,
     backgroundColor: '#0f172a',
     webPreferences: {

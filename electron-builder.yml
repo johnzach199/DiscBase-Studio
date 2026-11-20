@@ -18,7 +18,6 @@ extraMetadata:
   main: electron/main.cjs
 win:
   target:
-    - nsis
     - portable
 mac:
   target:
@@ -27,15 +26,9 @@ mac:
 linux:
   target:
     - AppImage
-    - rpm
   executableName: discbase-studio
   maintainer: DiscBase Studio <support@discbase.local>
   vendor: DiscBase Studio
   category: AudioVideo
   synopsis: Album & Song Catalog Workstation for MySQL
   description: Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation.
-rpm:
-  compression: bzip2
-  fpm:
-    - --rpm-rpmbuild-define=_build_id_links none
-    - --rpm-rpmbuild-define=debug_package %{nil}

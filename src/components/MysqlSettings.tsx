@@ -455,13 +455,13 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
             </p>
             <ul className="text-xs text-slate-700 dark:text-slate-300 space-y-1.5 list-disc list-inside">
               <li>
-                <strong>Fedora Linux:</strong> <code className="font-mono-tabular">.rpm</code> &amp; <code className="font-mono-tabular">.AppImage</code>
+                <strong>Fedora / Linux:</strong> <code className="font-mono-tabular">.AppImage</code> (published directly to GitHub Releases)
               </li>
               <li>
-                <strong>macOS:</strong> <code className="font-mono-tabular">.dmg</code> &amp; <code className="font-mono-tabular">.zip</code>
+                <strong>macOS:</strong> <code className="font-mono-tabular">.dmg</code> (uncompressed disk image)
               </li>
               <li>
-                <strong>Windows:</strong> <code className="font-mono-tabular">.exe</code> installer &amp; portable binary
+                <strong>Windows:</strong> <code className="font-mono-tabular">.exe</code> standalone executable
               </li>
             </ul>
             {workflowYml && (

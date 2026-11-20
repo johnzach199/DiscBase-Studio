@@ -61,3 +61,11 @@ html.dark .spreadsheet-scroll::-webkit-scrollbar-thumb {
 html.dark .spreadsheet-scroll::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+.electron-drag {
+  -webkit-app-region: drag;
+}
+
+.electron-no-drag {
+  -webkit-app-region: no-drag;
+}
