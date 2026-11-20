@@ -5,8 +5,13 @@ import { parseSpreadsheetRows } from '../src/utils/catalogMath';
 
 function loadSampleFromTsv(relativeFile: string): Album | null {
   try {
-    const absPath = path.resolve(process.cwd(), relativeFile);
-    if (!fs.existsSync(absPath)) return null;
+    const candidates = [
+      process.env.APP_ROOT_DIR ? path.resolve(process.env.APP_ROOT_DIR, relativeFile) : '',
+      typeof __dirname !== 'undefined' ? path.resolve(__dirname, '..', relativeFile) : '',
+      path.resolve(process.cwd(), relativeFile),
+    ].filter(Boolean);
+    const absPath = candidates.find((c) => fs.existsSync(c));
+    if (!absPath) return null;
     const raw = fs.readFileSync(absPath, 'utf-8');
     const rows = raw.split(/\r?\n/).map((line) => line.split('\t'));
     return parseSpreadsheetRows(rows);

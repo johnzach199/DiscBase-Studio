@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -17,19 +17,19 @@ async function startLocalBackend() {
   // Load bundled backend server
   const serverModulePath = path.join(__dirname, '..', 'dist-server', 'server.cjs');
   const { startAppServer } = require(serverModulePath);
-  const { server } = await startAppServer({
-    port: 0, // Let OS pick an available port so desktop instances never collide
+  const { server, port } = await startAppServer({
+    port: 0, // Let OS pick an available port and await socket bind
     dataDir: userDataDir,
     appRoot: app.getAppPath(),
     isProduction: true,
   });
   serverInstance = server;
-  const address = server.address();
-  return typeof address === 'object' && address ? address.port : 3000;
+  return port;
 }
 
 async function createWindow() {
-  const port = await startLocalBackend();
+  // Remove the File / Edit / View / Window / Help menu bar so the app looks clean
+  Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -37,7 +37,8 @@ async function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'DiscBase Studio',
-    backgroundColor: '#f8fafc',
+    autoHideMenuBar: true,
+    backgroundColor: '#0f172a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -45,7 +46,10 @@ async function createWindow() {
     },
   });
 
-  mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  mainWindow.setMenuBarVisibility(false);
+  if (typeof mainWindow.removeMenu === 'function') {
+    mainWindow.removeMenu();
+  }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -55,6 +59,15 @@ async function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  try {
+    const port = await startLocalBackend();
+    await mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.stack || err.message : String(err);
+    const html = `<!doctype html><html><body style="font-family:sans-serif;padding:32px;background:#0f172a;color:#f8fafc;"><h2>DiscBase Studio failed to start</h2><pre style="white-space:pre-wrap;color:#fca5a5;">${msg.replace(/</g, '&lt;')}</pre></body></html>`;
+    await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  }
 }
 
 app.whenReady().then(createWindow);

@@ -192,8 +192,13 @@ export class CatalogDatabase {
   }
 
   private resolveSchemaPath(): string | null {
+    const appRoot = process.env.APP_ROOT_DIR || '';
+    const unpackedRoot = appRoot.endsWith('app.asar')
+      ? appRoot.replace(/app\.asar$/, 'app.asar.unpacked')
+      : '';
     const candidates = [
-      process.env.APP_ROOT_DIR ? path.resolve(process.env.APP_ROOT_DIR, 'server/schema.sql') : '',
+      unpackedRoot ? path.resolve(unpackedRoot, 'server/schema.sql') : '',
+      appRoot ? path.resolve(appRoot, 'server/schema.sql') : '',
       typeof __dirname !== 'undefined' ? path.resolve(__dirname, '../server/schema.sql') : '',
       path.resolve(process.cwd(), 'server/schema.sql'),
     ].filter(Boolean);

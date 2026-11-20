@@ -1,6 +1,10 @@
 appId: com.discbase.studio
 productName: DiscBase Studio
 copyright: Copyright © 2026 DiscBase Studio
+publish: null
+asarUnpack:
+  - dist/**/*
+  - server/schema.sql
 directories:
   output: dist-electron
   buildResources: build-resources
@@ -19,12 +23,19 @@ win:
 mac:
   target:
     - dmg
-    - zip
   category: public.app-category.music
 linux:
   target:
     - AppImage
     - rpm
+  executableName: discbase-studio
+  maintainer: DiscBase Studio <support@discbase.local>
+  vendor: DiscBase Studio
   category: AudioVideo
   synopsis: Album & Song Catalog Workstation for MySQL
   description: Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation.
+rpm:
+  compression: bzip2
+  fpm:
+    - --rpm-rpmbuild-define=_build_id_links none
+    - --rpm-rpmbuild-define=debug_package %{nil}

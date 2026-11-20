@@ -9,7 +9,12 @@ import type { Album, MysqlConfig } from './src/types/catalog';
 import { buildWorkbookMatrix, parseSpreadsheetRows, validateAlbum } from './src/utils/catalogMath';
 
 function resolveAppPath(appRootOverride: string | undefined, ...segments: string[]): string {
+  const baseRoot = appRootOverride || process.env.APP_ROOT_DIR || '';
+  const unpackedRoot = baseRoot.endsWith('app.asar')
+    ? baseRoot.replace(/app\.asar$/, 'app.asar.unpacked')
+    : '';
   const candidates = [
+    unpackedRoot ? path.resolve(unpackedRoot, ...segments) : '',
     appRootOverride ? path.resolve(appRootOverride, ...segments) : '',
     process.env.APP_ROOT_DIR ? path.resolve(process.env.APP_ROOT_DIR, ...segments) : '',
     typeof __dirname !== 'undefined' ? path.resolve(__dirname, '..', ...segments) : '',
@@ -290,6 +295,7 @@ export async function startAppServer(options?: {
       const root = process.cwd();
       const entries: ZipEntryInput[] = [];
       const rootFiles = [
+        'README.md',
         'package.json',
         'package-lock.json',
         'tsconfig.json',
@@ -359,24 +365,65 @@ export async function startAppServer(options?: {
     app.use(vite.middlewares);
   } else {
     const distPath = resolveAppPath(options?.appRoot, 'dist');
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html; charset=utf-8',
+      '.js': 'application/javascript; charset=utf-8',
+      '.mjs': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.ico': 'image/x-icon',
+      '.woff': 'font/woff',
+      '.woff2': 'font/woff2',
+      '.txt': 'text/plain; charset=utf-8',
+    };
+
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get('*', (req, res) => {
+      const cleanReqPath = req.path === '/' ? 'index.html' : req.path.replace(/^\/+/, '');
+      const candidate = path.join(distPath, cleanReqPath);
+      const resolved = path.resolve(candidate);
+      const distResolved = path.resolve(distPath);
+
+      const targetFile =
+        resolved.startsWith(distResolved) && fs.existsSync(resolved) && fs.statSync(resolved).isFile()
+          ? resolved
+          : path.join(distResolved, 'index.html');
+
+      if (!fs.existsSync(targetFile)) {
+        res.status(500).send(`Missing production bundle at ${distPath}`);
+        return;
+      }
+
+      const ext = path.extname(targetFile).toLowerCase();
+      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+      res.send(fs.readFileSync(targetFile));
     });
   }
 
-  const port = options?.port ?? Number(process.env.PORT || 3000);
-  const server = app.listen(port, '0.0.0.0', () => {
-    console.log(`DiscBase Studio listening on http://localhost:${port}`);
+  const requestedPort = options?.port ?? Number(process.env.PORT || 3000);
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve, reject) => {
+    const srv = app.listen(requestedPort, '127.0.0.1', () => resolve(srv));
+    srv.on('error', reject);
   });
 
-  return { app, server, db };
+  const addr = server.address();
+  const actualPort = typeof addr === 'object' && addr ? addr.port : requestedPort;
+  console.log(`DiscBase Studio listening on http://127.0.0.1:${actualPort}`);
+
+  return { app, server, db, port: actualPort };
 }
 
 // Start directly when executed as main entry point
 const isDirectRun =
+  !process.versions.electron &&
   process.argv[1] &&
-  (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'));
+  (process.argv[1].endsWith('server.ts') ||
+    process.argv[1].endsWith('server.js') ||
+    process.argv[1].endsWith('server.mjs'));
 
 if (isDirectRun) {
   startAppServer().catch((err) => {
