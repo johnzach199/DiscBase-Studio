@@ -1,0 +1,30 @@
+appId: com.discbase.studio
+productName: DiscBase Studio
+copyright: Copyright © 2026 DiscBase Studio
+directories:
+  output: dist-electron
+  buildResources: build-resources
+files:
+  - dist/**/*
+  - dist-server/server.cjs
+  - electron/**/*
+  - server/schema.sql
+  - package.json
+extraMetadata:
+  main: electron/main.cjs
+win:
+  target:
+    - nsis
+    - portable
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.music
+linux:
+  target:
+    - AppImage
+    - rpm
+  category: AudioVideo
+  synopsis: Album & Song Catalog Workstation for MySQL
+  description: Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation.

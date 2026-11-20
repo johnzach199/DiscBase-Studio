@@ -1,0 +1,40 @@
+ΦΩΝ.ΕΤΑΙΡΙΑ : ΣΤΑΜΑΤΕΛΑΤΟΣ ΑΝΔΡΕΑΣ           LABEL :    GM                  ΤΥΠΟΣ : CD                                      ΑΡ. ΚΑΤΑΛΟΓΟΥ : 4128                                                                      																		
+ΤΡΑΓΟΥΔΙΣΤΗΣ: ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ                 ΗΜ.ΑΠΟΣΤΟΛΗΣ : 25-04-2001.      ΗΜ.ΕΠΙΣΤΡΟΦΗΣ: 31-05-2001     (Σημείωση:  12-06-2008).           Barcode:5205299000808																		
+Aρ.Καταλ: GM 4128			ΓΕΝΙΚΟΣ ΤΙΤΛΟΣ :   ΤΑ ΧΟΡΕΥΤΙΚΑ - (ΔΙΟΡΘΩΤΙΚΟ)															
+A/A	ΤΙΤΛΟΣ ΤΡΑΓΟΥΔΙΟΥ	ΤΙΤΛΟΣ ΤΡΑΓΟΥΔΙΟΥ(eng)	ΟΛΟΚΛΗΡΟ	ΠΟΤ - ΠΟΥΡΙ	min	sec	ΤΕΛΙΚΗ ΔΙΑΡΚΕΙΑ (sec)	ΠΟΣΟΣΤΟ ΑΕΠΙ % 	ΚΩΔ. ISRC	ΣΥΝΘΕΤΗΣ	ΣΤΙΧΟΥΡΓΟΣ	Autodia code	ISWC	Δημιουργοί (eng)	Youtube link	ΤΕΛΙΚΟ ΠΟΣΟΣΤΟ ΑΕΠΙ	ΤΡΑΓΟΥΔΙΣΤΗΣ	ΠΑΡΑΤΗΡΗΣΕΙΣ
+1	ΔΩΣ ΜΟΥ ΤΑ ΜΑΤΙΑ ΜΟΥ	Dos' mou ta matia mou	1		3	7	187	100	GRGM10100190	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΠΙΑΣ ΓΙΩΡΓΟΣ	005114913	T2030037089	PIAS GEORGIOS , SOUKAS KOSTAS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	5.45985401459854	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+2	ΣΑΝ ΝΑ 'ΜΑΙ ΞΕΝΗ	San na 'mai xeni		1	1	10	70	100	GRGM10100191	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΤΣΩΛΗΣ ΛΑΚΗΣ	006678585	T2030147022	SOUKAS KOSTAS , TSOLIS LAKIS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	2.04379562043796	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+3	ΠΑΡΑΜΙΛΩ	Paramilo	1		1	42	102	100	GRGM10100192	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΤΣΩΛΗΣ ΛΑΚΗΣ	011536905	T2030458546	SOUKAS KOSTAS , TSOLIS LAKIS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	2.97810218978102	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+4	ΣΤΟ ΠΟΤΗΡΙ ΜΟΥ	Sto potiri mou	1		2	47	167	100	GRGM10100193	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΤΣΩΛΗΣ ΛΑΚΗΣ	005113143	T2030031387	SOUKAS KOSTAS , TSOLIS LAKIS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	4.87591240875912	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+5	ΠΟΥ ΠΑΣ ΠΟΥ ΤΡΕΧΕΙΣ ΠΟΥ ΓΥΡΝΑΣ	Pou pas pou treheis pou girnas		1	1	4	64	100	GRGM10100194	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΠΙΑΣ ΓΙΩΡΓΟΣ	005114917	T2030037090	PIAS GEORGIOS , SOUKAS KOSTAS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	1.86861313868613	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+6	ΦΥΓΕ	Fige	1		2	20	140	100	GRGM10100195	ΣΟΥΚΑΣ ΗΛΙΑΣ	ΒΡΟΥΒΑΣ ΓΙΩΡΓΟΣ	005111618	T2030019769	SOUKAS ILIAS , VROUVAS (YORGOS) GEORGES	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	4.08759124087591	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+7	ΘΑ ΒΓΩ ΣΤΗ ΒΡΟΧΗ	Tha vgo sti vrohi	1		2	18	138	100	GRGM10100196	ΚΑΤΣΑΡΗΣ ΑΝΤΩΝΗΣ	ΚΑΤΣΑΡΗΣ ΑΝΤΩΝΗΣ	005116940	T2030050542	KATSARIS ANTONIOS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	4.02919708029197	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+8	ΠΟΥΛΑΚΙ ΞΕΝΟ	Poulaki xeno		1	1	47	107	100	GRGM10100197	ΠΑΠΑΣΙΔΕΡΗΣ ΓΕΩΡΙΟΣ	ΠΑΠΑΣΙΔΕΡΗΣ ΓΕΩΡΙΟΣ	151891462		PAPASSIDERIS GEORGIOS , VILARAS IOANNIS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	3.12408759124088	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	Ημ/νια ηχογράφησης 1939 Columbia κωδ. δίσκου SEGG2524A κωδ. μήτρας 7TCG135  45 στροφών. Στιχουργός αναφέρεται ο ΙΩΑΝΝΗΣ ΒΙΛΑΡΑΣ
+9	Ο ΑΜΑΡΑΝΤΟΣ	O amarantos	1		1	53	113	0	GRGM10100198	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ	151360171		DP	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	0	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	 
+10	ΚΟΒΩ ΜΙΑ ΚΛΑΡΑ	Kovo mia klara		1	0	31	31	0	GRGM10100199	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ				https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	0	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+11	ΣΤΟ 'ΠΑ ΚΑΙ ΣΤΟ ΠΑΡΗΓΓΕΙΛΑ	Sto 'pa kai sto pariggeila	1		5	3	303	0	GRGM10100200	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ				https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	0	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+12	ΣΤ ΑΝΑΠΛΙΟΥ ΤΟ ΠΑΛΑΜΗΔΙ	St' Anapliou to Palamidi	1		2	1	121	0	GRGM10100201	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ	151364273		DP	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	0	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+13	Ο ΚΑΜΠΟΣ ΕΠΡΑΣΙΝΗΣΕ	O kampos eprasinise	1		2	16	136	100	GRGM10100202	ΜΠΕΚΑΡΗΣ ΠΑΥΛΟΣ	ΜΠΕΚΑΡΗΣ ΠΑΥΛΟΣ				https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	3.97080291970803	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+14	ΦΑΡΜΑΚΙ ΛΙΓΟ ΛΙΓΟ	Farmaki ligo ligo	1		2	21	141	100	GRGM10100203	ΣΟΥΚΑΣ ΒΑΓΓΕΛΗΣ ΕΥΑΓΓΕΛΟΣ	ΤΣΙΛΙΒΕΡΔΗΣ ΣΑΡΑΝΤΟΣ	011261531	T2030293423	SOUKAS VANGELIS , TSILIVERDIS SARANDOS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	4.11678832116788	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+15	ΤΑ ΑΙΣΘΗΜΑΤΙΚΑ ΜΟΥ	Ta aisthimatika mou		1	1	3	63	100	GRGM10100204	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΒΑΡΣΑΜΙΔΗΣ ΔΗΜΗΤΡΗΣ	005112540	T3141569537	SOUKAS KOSTAS , VARSAMIDIS DIMITRIS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	1.83941605839416	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+16	ΘΕΛΩ ΝΑ ΜΕ ΚΟΙΤΑΣ	Thelo na me koitas	1		3	22	202	100	GRGM10100205	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΤΣΩΛΗΣ ΛΑΚΗΣ	006683059	T2030175244	SOUKAS KOSTAS , TSOLIS LAKIS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	5.8978102189781	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+17	ΕΓΕΡΑΣΑ ΜΑΝΟΥΛΑ ΜΟΥ	Egerasa manoula mou	1		4	39	279	100	GRGM10100206	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ				https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	8.14598540145985	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+18	ΚΑΜΠΑΝΑ ΡΑΓΙΣΜΕΝΗ	Kampana ragismeni	1		4	48	288	100	GRGM10100207	ΚΟΡΟΣ ΓΙΩΡΓΟΣ	ΤΣΩΛΗΣ ΛΑΚΗΣ	006678233	T2030160654	KOROS GIORGOS , TSOLIS LAKIS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	8.40875912408759	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+19	Σ ΑΓΑΠΩ ΓΙΑΤΙ ΕΙΣΑΙ ΩΡΑΙΑ	S' agapo giati eisai oraia	1		4	17	257	0	GRGM10100208	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ				https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	0	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+20	ΤΟ ΑΓΡΙΟΛΟΥΛΟΥΔΟ	To agriolouloudo	1		2	48	168	100	GRGM10100209	ΝΙΚΟΛΟΠΟΥΛΟΣ ΧΡΗΣΤΟΣ	ΠΥΘΑΓΟΡΑΣ	000054446	T2030432186	NIKOLOPOULOS CHRISTOS , PITHAGORAS	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	4.90510948905109	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+21	ΜΕ ΓΕΛΑΣΑΝ ΜΙΑ ΧΑΡΑΥΓΗ	Me gelasan mia haravgi	1		5	48	348	0	GRGM10100210	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ	151412842		DP	https://www.youtube.com/playlist?list=PL32C5_oVHV17c_ZaJFvEJBDMYL6GyO11Z	0	ΑΝΝΟΥΛΑ ΤΣΑΧΑΛΟΥ	
+ΣΥΝΟΛΙΚΗ ΔΙΑΡΚΕΙΑ ΤΡΑΓΟΥΔΙΩΝ							3425	1500										
+ΣΥΝΟΛΟ ΟΛΟΚΛΗΡΩΝ & ΠΟΤ-ΠΟΥΡΙ			16	5														
+ΤΕΛΙΚΟ ΠΟΣΟΣΤΟ ΑΕΠΙ ΑΝΑ CD																65.7518248175182		
+																		
+Έπαιξαν οι μουσικοί:			Web Link CD: https://www.generalmusic.gr/shop/neo-dimotika/ta-choreytika-3/															
+Κλαρίνο: ΚΩΣΤΑΣ ΑΡΙΣΤΟΠΟΥΛΟΣ			Κατηγορια: Δημοτικα															
+Όργανο: ΑΓΓΕΛΟΣ ΑΒΡΑΜΗΣ																		
+Κιθάρα/Λαούτο: ΚΩΣΤΑΣ ΠΙΤΣΟΣ																		
+Ντραμς: ΑΝΔΡΕΑΣ ΚΟΥΣΟΥΡΗΣ																		
+Κρουστά: ΒΡΑΖΙΛΙΑΝΟΣ																		
+																		
+Παραγωγή: GENERAL MUSIC																		
+Παραγωγός: ΑΝΔΡΕΑΣ ΣΤΑΜΑΤΕΛΑΤΟΣ																		
+Μακέτα/Διαχωρισμοί: FORMAT																		
+

@@ -1,0 +1,47 @@
+ΦΩΝ.ΕΤΑΙΡΙΑ : ΣΤΑΜΑΤΕΛΑΤΟΣ ΣΩΤΗΡΙΟΣ & ΣΙΑ Ο.Ε.           LABEL :    GM                  ΤΥΠΟΣ : CD                                      ΑΡ. ΚΑΤΑΛΟΓΟΥ : 4314                                                                      																	
+ΤΡΑΓΟΥΔΙΣΤΗΣ: ΔΙΑΦΟΡΟΙ                             ΗΜ.ΑΠΟΣΤΟΛΗΣ : 12-05-2014                         ΗΜ.ΕΠΙΣΤΡΟΦΗΣ:15-10-2014        Barcode : 5205299033028  																	
+ΓΙΑΝΝΗΣ ΚΩΝΣΤΑΝΤΙΝΟΥ - ΦΙΛΙΩ ΠΥΡΓΑΚΗ - ΚΩΣΤΑΣ ΜΕΤΖΕΛΟΠΟΥΛΟΣ - ΑΛΕΚΑ ΦΡΑΓΚΟΥΛΗ																	
+Aρ.Καταλ: GM 4314			ΓΕΝΙΚΟΣ ΤΙΤΛΟΣ :   ΖΩΝΤΑΝΑ ΣΤΑ ΑΡΑΧΩΒΙΤΙΚΑ														
+A/A	ΤΙΤΛΟΣ ΤΡΑΓΟΥΔΙΟΥ	ΤΙΤΛΟΣ ΤΡΑΓΟΥΔΙΟΥ (eng)	ΟΛΟΚΛΗΡΟ	ΠΟΤ - ΠΟΥΡΙ	min	sec	ΤΕΛΙΚΗ ΔΙΑΡΚΕΙΑ (sec)	ΠΟΣΟΣΤΟ ΑΕΠΙ % 	ΚΩΔ. ISRC	ΣΥΝΘΕΤΗΣ	ΣΤΙΧΟΥΡΓΟΣ	Autodia code	ISWC	Δημιουργοί (eng)	Youtube link	ΤΕΛΙΚΟ ΠΟΣΟΣΤΟ ΑΕΠΙ	ΤΡΑΓΟΥΔΙΣΤΗΣ
+1	Ο ΛΙΟΥΛΙΟΣ	O lioulios	1		2	50	170.00	0.00	GRGM12500969	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ	156344941		DP	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΚΩΝΣΤΑΝΤΙΝΟΥ ΓΙΑΝΝΗΣ
+2	ΣΕΛΗΜΠΕΗ	Selimpei	1		2	07	127.00	0.00	GRGM12500970	ΑΓΝΩΣΤΟΣ	ΑΓΝΩΣΤΟΣ	151614316		DP	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΚΩΝΣΤΑΝΤΙΝΟΥ ΓΙΑΝΝΗΣ
+3	ΠΑΤΕΡΑ ΜΑΣ ΜΕΓΑΛΩΣΕΣ	Patera mas megaloses	1		3	46	226.00	100.00	GRGM12500971	ΚΟΚΟΝΤΙΝΗΣ ΠΑΝΑΓΙΩΤΗΣ	ΓΚΥΖΙΩΤΗΣ ΕΠΑΜΕΙΝΩΝΔΑΣ/ΚΟΚΟΝΤΙΝΗΣ ΠΑΝΑΓΙΩΤΗΣ	006677796	T2030145140	GIZIOTIS EPAMINONDAS , KOKONDINIS PANAGIOTIS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	6.20879	ΚΩΝΣΤΑΝΤΙΝΟΥ ΓΙΑΝΝΗΣ
+4	ΜΙΑ ΓΡΙΑ ΜΑΝΑ ΚΑΘΕΤΑΙ	Mia gria mana kathetai	1		3	01	181.00	100.00	GRGM12500972	ΚΟΡΟΣ ΓΙΩΡΓΟΣ	ΚΟΡΟΣ ΓΙΩΡΓΟΣ	006677697	T2030144818	KOROS GIORGOS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	4.97253	ΚΩΝΣΤΑΝΤΙΝΟΥ ΓΙΑΝΝΗΣ
+5	ΣΕ ΞΕΝΟ ΤΟΠΟ ΜΑΚΡΙΝΟ	Se xeno topo makrino	1		2	05	125.00	100.00	GRGM12500973	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΧΑΛΚΙΑΔΑΚΗΣ ΓΙΑΝΝΗΣ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	3.43407	ΚΩΝΣΤΑΝΤΙΝΟΥ ΓΙΑΝΝΗΣ
+	ΙΤΙΑ	Itia	1		2	52	172.00	0.00	GRGM12500973	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ	025091780		DP	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΚΩΝΣΤΑΝΤΙΝΟΥ ΓΙΑΝΝΗΣ
+6	ΜΑΝΟΥΣΑΚΙΑ	Manousakia		1	1	34	94.00	0.00	GRGM12500974	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ	151364753		DP	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΠΥΡΓΑΚΗ ΦΥΛΙΩ
+7	ΣΤΟΥΣ ΚΑΜΠΟΥΣ ΑΝΑΣΤΕΝΑΞΑ	Stous kampous anastenaxa	1		1	52	112.00	0.00	GRGM12500975	ΚΟΝΤΟΓΙΩΡΓΟΣ ΚΩΣΤΑΣ	ΚΟΝΤΟΓΙΩΡΓΟΣ ΚΩΣΤΑΣ	153500837		KONDOGIORGOS KOSTAS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΠΥΡΓΑΚΗ ΦΥΛΙΩ
+8	ΘΕΛΩ ΝΑ ΣΧΙΣΩ ΤΑ ΒΟΥΝΑ	Thelo na schiso ta vouna	1		2	21	141.00	0.00	GRGM12500976	ΑΓΝΩΣΤΟΣ	ΑΓΝΩΣΤΟΣ	151398369		DP	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΠΥΡΓΑΚΗ ΦΥΛΙΩ
+9	ΘΕΛΩ ΤΟ ΘΕΟ ΝΑ ΤΟΝ ΡΩΤΗΣΩ	Thelo ton theo na ton rotiso	1		3	00	180.00	100.00	GRGM12500977	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΠΙΑΣ ΓΙΩΡΓΟΣ	005111144	T2030018573	PIAS GEORGIOS , SOUKAS KOSTAS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	4.94505	ΦΡΑΓΚΟΥΛΗ ΑΛΕΚΑ
+10	ΤΙ ΖΗΤΑΣ ΑΠΟ ΜΕΝΑ ΤΙ ΘΕΣ	Ti zitas apo mena ti thes		1	0	52	52.00	100.00	GRGM12500978	ΜΕΓΑΣ ΑΘΑΝΑΣΙΟΣ	ΜΕΓΑΣ ΑΘΑΝΑΣΙΟΣ	006680694	T2030167031	MEGAS ATHANASSIOS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	1.42857	ΦΡΑΓΚΟΥΛΗ ΑΛΕΚΑ
+	ΤΙ ΕΧΩ ΠΑΘΕΙ	Ti eho pathei		1	0	54	54.00	100.00	GRGM12500978	ΠΙΤΣΟΣ ΚΩΣΤΑΣ	ΒΑΣΙΛΑΚΟΥ ΣΟΥΛΑ	006681036	T2030178210	PITSOS KOSTAS , VASSILAKOU SOULA	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	1.48352	ΦΡΑΓΚΟΥΛΗ ΑΛΕΚΑ
+11	ΕΤΣΙ ΜΑΤΙΑ ΜΟΥ Μ' ΑΡΕΣΕΙ	Etsi matia mou m' aresei	1		1	54	114.00	100.00	GRGM12500979	ΠΙΤΣΟΣ ΚΩΣΤΑΣ	ΤΣΩΛΗΣ ΛΑΚΗΣ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	3.13187	ΦΡΑΓΚΟΥΛΗ ΑΛΕΚΑ
+12	ΟΛΕΣ ΟΙ ΜΕΛΑΧΡΟΙΝΕΣ	Oles oi melahrines	1		2	06	126.00	100.00	GRGM12500980	ΠΑΠΑΣΙΔΕΡΗΣ ΓΙΩΡΓΟΣ	ΒΑΣΙΛΕΙΑΔΗΣ ΜΑΚΗΣ	011537215	T2030450473	PAPASSIDERIS GEORGIOS , VASSILIADIS HARALAMBOS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	3.46154	ΚΩΝΣΤΑΝΤΙΝΟΥ ΓΙΑΝΝΗΣ
+13	ΕΙΣΑΙ ΣΤΗ ΝΥΧΤΑ ΤΟ ΦΕΓΓΑΡΙ	Eisai sti nihta to feggari	1		2	01	121.00	100.00	GRGM12500981	ΠΙΤΣΟΣ ΚΩΣΤΑΣ	ΒΑΡΣΑΜΙΔΗΣ ΔΗΜΗΤΡΗΣ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	3.32418	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+	ΜΕΣ Τ' ΑΜΠΕΛΙ ΣΤΗ ΣΤΑΦΙΔΑ	Mes t' ampeli sti stafida		1	1	23	83.00	0.00	GRGM12500981	ΡΟΥΒΑΣ ΛΑΖΑΡΟΣ	ΡΟΥΒΑΣ ΛΑΖΑΡΟΣ	155602722		ROUVAS LAZAROS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+14	ΤΑ ΣΚΑΛΟΠΑΤΙΑ ΤΗΣ ΖΩΗΣ	Ta skalopatia tis zois	1		2	53	173.00	100.00	GRGM12500982	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ	ΒΑΣΙΛΟΠΟΥΛΟΣ ΘΑΝΑΣΗΣ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	4.75275	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+15	ΒΡΕΞΕ ΟΥΡΑΝΕ	Vrexe ourane	1		2	04	124.00	100.00	GRGM12500983	ΣΟΥΚΑΣ ΚΩΣΤΑΣ	ΤΣΩΛΗΣ ΛΑΚΗΣ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	3.40659	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+16	Ο ΚΑΜΠΟΣ ΕΠΡΑΣΙΝΗΣΕ	O kampos eprasinise		1	1	38	98.00	0.00	GRGM12500984	ΑΓΝΩΣΤΟΣ	ΑΓΝΩΣΤΟΣ	155601953		ΑΓΝΏΣΤΟΥ CA	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+	ΙΤΙΑ (ΟΡΓΑΝΙΚΟ)	Itia (Instrumental)	1		1	47	107.00	0.00	GRGM12500984	ΠΑΡΑΔΟΣΙΑΚΟ	ΠΑΡΑΔΟΣΙΑΚΟ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	0.00000	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+17	ΜΕΡΑ ΜΕ ΤΗ ΜΕΡΑ	Mera me ti mera	1		2	02	122.00	100.00	GRGM12500985	ΦΙΛΙΠΠΟΥ ΗΛΙΑΣ	ΠΑΠΑΔΟΠΟΥΛΟΣ ΚΥΡΙΑΚΟΣ	000050728	T2030197646	FILIPOU ILIAS , PAPADOPOULOS KYRIAKOS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	3.35165	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+18	ΘΕΛΩ ΝΑ Μ' ΑΓΑΠΑΣ	Thelo na m' agapas	1		2	04	124.00	50.00	GRGM12500986	ΠΛΑΚΙΑΣ ΠΑΝΑΓΙΩΤΗΣ	ΘΩΜΑΔΑΚΗ ΕΛΕΝΗ	156344855		PLAKIAS  PANAGIOTIS , THOMADAKI ELENA	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	1.70330	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+19	ΓΙΝΕΤΑΙ ΧΑΜΟΣ	Ginetai hamos		1	0	55	55.00	100.00	GRGM12500987	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ	006682319	T2030188781	MENTZELOPOULOS KOSTAS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	1.51099	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+	ΩΧ ΑΜΑΝ ΚΙ ΑΛΙΜΟΝΟ ΣΟΥ	Oh aman ki alimono sou	1		2	31	151.00		GRGM12500987	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ	ΒΑΡΣΑΜΙΔΗΣ ΔΗΜΗΤΡΗΣ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM		ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+20	ΕΚΔΗΛΩΘΗΚΕΣ	Ekdilothikes		1	1	05	65.00	100.00	GRGM12500988	ΧΡΥΣΟΒΕΡΓΗΣ ΑΛΕΚΟΣ-ΧΡΥΣΟΒΕΡΓΗ ΕΙΡΗΝΗ	ΓΙΑΤΡΑΣ ΣΠΥΡΟΣ	006682814	T2030183015	CHRISOVERGI IRINI , CHRISOVERGIS ALEKOS , GIATRAS SPYROS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	1.78571	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+	ΜΙΑ ΝΥΧΤΑ ΓΝΩΡΙΣΤΗΚΑΜΕ	Mia nihta gnoristikame	1		2	54	174.00	100.00	GRGM12500988	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ	006681528	T2030179575	MENTZELOPOULOS KOSTAS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	4.78022	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+21	ΤΣΙΦΤΕΤΕΛΙ	Tsifteteli (instrumental)	1		2	58	178.00	100.00	GRGM12500989	ΑΡΙΣΤΟΠΟΥΛΟΣ ΚΩΣΤΑΣ	ΑΡΙΣΤΟΠΟΥΛΟΣ ΚΩΣΤΑΣ				https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	4.89011	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+22	ΤΙ ΝΑ ΤΗΣ ΚΑΝΩ ΤΗΣ ΚΑΡΔΙΑΣ	Ti na tis kano tis kardias	1		3	11	191.00	100.00	GRGM12500990	ΣΚΑΦΙΔΑΣ ΚΩΣΤΑΣ	ΣΚΑΦΙΔΑΣ ΚΩΣΤΑΣ	006682493	T2030189171	SKAFIDAS KONSTANDINOS	https://youtube.com/playlist?list=PL32C5_oVHV14OJDQgtPMN-wlEh6ds04hu&si=iTzTAtjHsiHocJnM	5.24725	ΜΕΝΤΖΕΛΟΠΟΥΛΟΣ ΚΩΣΤΑΣ
+ΣΥΝΟΛΙΚΗ ΔΙΑΡΚΕΙΑ ΤΡΑΓΟΥΔΙΩΝ							3,640.00	1,750.00									
+ΣΥΝΟΛΟ ΟΛΟΚΛΗΡΩΝ & ΠΟΤ-ΠΟΥΡΙ			21	7													
+ΤΕΛΙΚΟ ΠΟΣΟΣΤΟ ΑΕΠΙ ΑΝΑ CD																63.81868	
+																	
+Έπαιξαν οι μουσικοί:			Web Link CD: https://www.generalmusic.gr/shop/dimotika/zontana-sta-arachobitika/														
+Κλαρίνο: ΚΩΣΤΑΣ ΑΡΙΣΤΟΠΟΥΛΟΣ			Κατηγορια: Δημοτικα														
+Κιθάρα : ΚΩΣΤΑΣ ΠΙΤΣΟΣ																	
+Αρμόνιο: ΣΑΚΗΣ ΜΠΑΣΙΛΑΡΗΣ																	
+Ντραμς: ΑΝΔΡΕΑΣ ΚΟΥΣΟΥΡΗΣ																	
+Μπάσο: ΜΠΑΜΠΗΣ ΦΩΤΙΟΥ																	
+																	
+Παραγωγή: ΑΝΔΡΕΑΣ ΣΤΑΜΑΤΕΛΑΤΟΣ																	
+Μακέτα-Εκτύπωση: ΑΛΕΞΟΠΟΥΛΟΣ																	
+

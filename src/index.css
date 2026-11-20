@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+
+  html.dark body {
+    background-color: #020617;
+    color: #f1f5f9;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom crisp spreadsheet scrollbars */
+.spreadsheet-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.spreadsheet-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.spreadsheet-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 5px;
+  border: 2px solid #f1f5f9;
+}
+
+.spreadsheet-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+html.dark .spreadsheet-scroll::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+html.dark .spreadsheet-scroll::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-color: #0f172a;
+}
+
+html.dark .spreadsheet-scroll::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

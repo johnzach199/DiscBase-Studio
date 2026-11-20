@@ -1,0 +1,6 @@
+{
+  "name": "DiscBase Studio",
+  "description": "Album and song catalog workstation with MySQL integration, spreadsheet-style manual entry, and XLSX batch import.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

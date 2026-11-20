@@ -1,0 +1,46 @@
+Η βάση που θέλουμε να φτιάξουμε περιέχει τις πληροφορίες ενός δίσκου ( π.χ CD)
+Υπάρχουν Γενικά πεδία και ειδικα Πεδία
+Γενικά Πεδία:
+Barcode:
+Catalog Number:
+Label:
+Format:
+Album Artist:
+Album Title:
+Album Time:
+Release Date:
+Album Music Category:
+Producer:
+Musicians->
+	Sub Musician A
+	Sub Musician B
+	Sub Musician C
+	…etc
+CD Digital Plallist link:
+Physical Product Web link:
+
+
+
+
+
+
+Ειδικο Πεδίo Songs:
+***  Το  σύνολο των τραγουδιών αποτελεί τον δίσκο ***
+Title GR:
+Title En:
+Duration->
+ 	Min
+	Sec
+Full Track: (Check Box) (If 1 then checked if null then not)
+Pot pouri: (Check Box) (If 1 then checked if null then not)
+ISRC Code:
+ISWC Code:
+Autodia Code:
+Composer GR:
+Composer EN:
+Songwriter GR:
+Songwriter EN:
+Digital web link:
+Singer GR:
+Singer EN:
+
