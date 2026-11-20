@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRightLeft,
@@ -7,9 +7,12 @@ import {
   Database,
   Download,
   FileArchive,
+  FolderOpen,
+  HardDrive,
   PlugZap,
   RefreshCw,
   Terminal,
+  Upload,
 } from 'lucide-react';
 import type { DbStatus, MysqlConfig } from '../types/catalog';
 
@@ -22,6 +25,13 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
   dbStatus,
   onStatusUpdated,
 }) => {
+  const isDesktop = typeof window !== 'undefined' && Boolean(window.desktopEnv?.isDesktop);
+  const sqliteFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [sqlitePath, setSqlitePath] = useState('data/discbase_catalog.sqlite');
+  const [connectingSqlite, setConnectingSqlite] = useState(false);
+  const [uploadingSqlite, setUploadingSqlite] = useState(false);
+
   const [form, setForm] = useState<MysqlConfig>({
     host: '127.0.0.1',
     port: 3306,
@@ -32,7 +42,9 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
     autoConnect: true,
   });
   const [hasExistingPassword, setHasExistingPassword] = useState(false);
-  const [schemaSql, setSchemaSql] = useState('');
+  const [mysqlSchemaSql, setMysqlSchemaSql] = useState('');
+  const [sqliteSchemaSql, setSqliteSchemaSql] = useState('');
+  const [activeSchemaTab, setActiveSchemaTab] = useState<'sqlite' | 'mysql'>('sqlite');
   const [workflowYml, setWorkflowYml] = useState('');
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -51,6 +63,9 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
         ]);
         if (statusRes.ok) {
           const data = await statusRes.json();
+          if (data.sqliteConfig?.filePath) {
+            setSqlitePath(data.sqliteConfig.filePath);
+          }
           if (data.config) {
             setForm((prev) => ({
               ...prev,
@@ -67,7 +82,8 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
         }
         if (schemaRes.ok) {
           const sData = await schemaRes.json();
-          setSchemaSql(sData.sql || '');
+          setMysqlSchemaSql(sData.sql || '');
+          setSqliteSchemaSql(sData.sqliteSql || '');
         }
         if (ymlRes.ok) {
           const yData = await ymlRes.json();
@@ -82,6 +98,97 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
   const payloadPassword = () => {
     if (form.password) return form.password;
     return hasExistingPassword ? '__KEEP_EXISTING__' : '';
+  };
+
+  const handleSqliteConnect = async (targetPath?: string) => {
+    const pathToUse = (targetPath ?? sqlitePath).trim();
+    if (!pathToUse) {
+      setFeedback({ ok: false, text: 'Enter a valid SQLite file path (.sqlite or .db).' });
+      return;
+    }
+    setConnectingSqlite(true);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/db/sqlite/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: pathToUse }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to open SQLite database');
+      if (data.sqliteConfig?.filePath) {
+        setSqlitePath(data.sqliteConfig.filePath);
+      }
+      await onStatusUpdated(data.status);
+      setFeedback({
+        ok: true,
+        text: `Active database switched to SQLite 3 (${data.status.sqlitePath}).`,
+      });
+    } catch (err) {
+      setFeedback({
+        ok: false,
+        text: err instanceof Error ? err.message : 'SQLite connection failed',
+      });
+    } finally {
+      setConnectingSqlite(false);
+    }
+  };
+
+  const handleDesktopPickSqlite = async (mode: 'open' | 'save') => {
+    if (!window.desktopEnv?.pickSqliteFile) return;
+    const picked = await window.desktopEnv.pickSqliteFile({
+      mode,
+      defaultPath: sqlitePath,
+    });
+    if (picked) {
+      setSqlitePath(picked);
+      await handleSqliteConnect(picked);
+    }
+  };
+
+  const handleUploadSqliteFile = async (file: File) => {
+    setUploadingSqlite(true);
+    setFeedback(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+      const res = await fetch('/api/db/sqlite/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64, filename: file.name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load SQLite file');
+      if (data.sqliteConfig?.filePath) {
+        setSqlitePath(data.sqliteConfig.filePath);
+      }
+      await onStatusUpdated(data.status);
+      setFeedback({
+        ok: true,
+        text: `Loaded SQLite database "${file.name}" (${data.status.albumCount} albums, ${data.status.songCount} songs).`,
+      });
+    } catch (err) {
+      setFeedback({
+        ok: false,
+        text: err instanceof Error ? err.message : 'Unable to open SQLite file',
+      });
+    } finally {
+      setUploadingSqlite(false);
+    }
+  };
+
+  const handleDownloadSqliteFile = () => {
+    const link = document.createElement('a');
+    link.href = '/api/db/sqlite/download';
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const handleTest = async () => {
@@ -144,7 +251,7 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
       } else {
         setFeedback({
           ok: false,
-          text: `Credentials saved, but MySQL could not be reached yet: ${data.status?.error || 'Connection refused'}. App stays operational in Local Store mode until the server is reachable.`,
+          text: `Credentials saved, but MySQL could not be reached yet: ${data.status?.error || 'Connection refused'}. App stays operational in SQLite mode until the server is reachable.`,
         });
       }
     } catch (err) {
@@ -154,6 +261,25 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSwitchToSqlite = async () => {
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/db/disconnect', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Switch failed');
+      await onStatusUpdated(data.status);
+      setFeedback({
+        ok: true,
+        text: `Switched active storage to SQLite 3 (${data.status.sqlitePath}).`,
+      });
+    } catch (err) {
+      setFeedback({
+        ok: false,
+        text: err instanceof Error ? err.message : 'Unable to switch to SQLite',
+      });
     }
   };
 
@@ -167,7 +293,7 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
       await onStatusUpdated(data.status);
       setFeedback({
         ok: true,
-        text: `Synced local records to MySQL: ${data.result.imported} imported, ${data.result.skipped} already present.`,
+        text: `Synced SQLite records to MySQL: ${data.result.imported} imported, ${data.result.skipped} already present.`,
       });
     } catch (err) {
       setFeedback({
@@ -179,9 +305,11 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
     }
   };
 
+  const activeSchemaText = activeSchemaTab === 'sqlite' ? sqliteSchemaSql : mysqlSchemaSql;
+
   const handleCopySql = async () => {
-    if (!schemaSql) return;
-    await navigator.clipboard.writeText(schemaSql);
+    if (!activeSchemaText) return;
+    await navigator.clipboard.writeText(activeSchemaText);
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2000);
   };
@@ -219,48 +347,76 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-          MySQL Server &amp; Desktop Packaging
+          SQLite, MySQL &amp; Desktop Packaging
         </h1>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Configure automatic MySQL Server connection credentials and download the GitHub source &amp; YML bundle for Fedora, macOS, and Windows.
+          Run locally on a portable SQLite 3 (.sqlite / .db) database file, auto-connect to MySQL Server, and download the GitHub source &amp; YML bundle.
         </p>
       </div>
 
       {/* Active Connection Status Strip */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 min-w-0">
           <Database
             className={`w-5 h-5 mt-0.5 shrink-0 ${
-              dbStatus?.mode === 'mysql' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
+              dbStatus?.mode === 'mysql' || dbStatus?.mode === 'sqlite'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-amber-600 dark:text-amber-400'
             }`}
           />
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 break-words">
               {dbStatus?.mode === 'mysql'
                 ? `Connected to MySQL Server (${dbStatus.host}:${dbStatus.port}/${dbStatus.database})`
-                : 'Running on Local Preview Store (MySQL Not Connected)'}
+                : dbStatus?.mode === 'sqlite'
+                ? `Connected to SQLite 3 Database (${dbStatus.sqlitePath || sqlitePath})`
+                : 'Running on Local Preview Store'}
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
               {dbStatus?.mode === 'mysql'
                 ? 'All manual entries and XLSX imports read and write directly to your MySQL database.'
+                : dbStatus?.mode === 'sqlite'
+                ? `All albums (${dbStatus.albumCount}) and songs (${dbStatus.songCount}) are stored in a real SQLite 3 database file with full foreign-key integrity.`
                 : dbStatus?.error
-                ? `Last MySQL attempt: ${dbStatus.error}`
-                : 'Enter your MySQL Server credentials below or set them in .env to auto-connect on startup.'}
+                ? `Last connection attempt: ${dbStatus.error}`
+                : 'Select a SQLite database file or enter MySQL Server credentials below.'}
             </p>
           </div>
         </div>
 
-        {dbStatus?.mode === 'mysql' && (
-          <button
-            type="button"
-            disabled={syncing}
-            onClick={handleSyncLocal}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg cursor-pointer shrink-0"
-          >
-            <ArrowRightLeft className="w-3.5 h-3.5" />
-            <span>{syncing ? 'Syncing...' : 'Push Local Records to MySQL'}</span>
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {dbStatus?.mode === 'sqlite' && (
+            <button
+              type="button"
+              onClick={handleDownloadSqliteFile}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download .sqlite Backup</span>
+            </button>
+          )}
+          {dbStatus?.mode === 'mysql' && (
+            <>
+              <button
+                type="button"
+                onClick={handleSwitchToSqlite}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+              >
+                <HardDrive className="w-3.5 h-3.5" />
+                <span>Switch to SQLite</span>
+              </button>
+              <button
+                type="button"
+                disabled={syncing}
+                onClick={handleSyncLocal}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                <span>{syncing ? 'Syncing...' : 'Push SQLite Records to MySQL'}</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {feedback && (
@@ -282,135 +438,244 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Credentials Form */}
-        <form
-          onSubmit={handleSaveAndConnect}
-          className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4"
-        >
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 border-b border-slate-100 dark:border-slate-800 pb-3">
-            MySQL Auto-Connect Credentials
-          </h2>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-2">
-              <label htmlFor="mysql-host" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Host / Server IP
-              </label>
-              <input
-                id="mysql-host"
-                type="text"
-                required
-                value={form.host}
-                onChange={(e) => setForm({ ...form, host: e.target.value })}
-                placeholder="127.0.0.1 or 192.168.1.50"
-                className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
+        {/* Left Column: SQLite + MySQL Configuration */}
+        <div className="lg:col-span-6 space-y-6">
+          {/* SQLite 3 Local Database Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <HardDrive className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                  SQLite 3 Local Database (.sqlite / .db)
+                </h2>
+              </div>
+              {dbStatus?.mode === 'sqlite' && (
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                  Active
+                </span>
+              )}
             </div>
 
             <div>
-              <label htmlFor="mysql-port" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Port
+              <label htmlFor="sqlite-path" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                SQLite Database File Path
               </label>
               <input
-                id="mysql-port"
-                type="number"
+                id="sqlite-path"
+                type="text"
+                value={sqlitePath}
+                onChange={(e) => setSqlitePath(e.target.value)}
+                placeholder="data/discbase_catalog.sqlite"
+                className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                Opens an existing SQLite file or creates a new one automatically with the DiscBase catalog schema.
+              </p>
+            </div>
+
+            <input
+              ref={sqliteFileInputRef}
+              type="file"
+              accept=".sqlite,.db,.sqlite3"
+              aria-label="Open SQLite file"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleUploadSqliteFile(file);
+                e.target.value = '';
+              }}
+            />
+
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={connectingSqlite}
+                onClick={() => void handleSqliteConnect()}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 rounded-lg cursor-pointer"
+              >
+                <PlugZap className="w-4 h-4" />
+                <span>{connectingSqlite ? 'Opening...' : 'Use SQLite File'}</span>
+              </button>
+
+              {isDesktop && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleDesktopPickSqlite('open')}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span>Browse .sqlite...</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDesktopPickSqlite('save')}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+                  >
+                    <HardDrive className="w-3.5 h-3.5" />
+                    <span>New .sqlite File...</span>
+                  </button>
+                </>
+              )}
+
+              <button
+                type="button"
+                disabled={uploadingSqlite}
+                onClick={() => sqliteFileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{uploadingSqlite ? 'Importing...' : 'Import .sqlite / .db'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadSqliteFile}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export .sqlite</span>
+              </button>
+            </div>
+          </div>
+
+          {/* MySQL Credentials Form */}
+          <form
+            onSubmit={handleSaveAndConnect}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                MySQL Auto-Connect Credentials (Optional Remote DB)
+              </h2>
+              {dbStatus?.mode === 'mysql' && (
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                  Active
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2">
+                <label htmlFor="mysql-host" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Host / Server IP
+                </label>
+                <input
+                  id="mysql-host"
+                  type="text"
+                  required
+                  value={form.host}
+                  onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  placeholder="127.0.0.1 or 192.168.1.50"
+                  className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="mysql-port" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Port
+                </label>
+                <input
+                  id="mysql-port"
+                  type="number"
+                  required
+                  value={form.port}
+                  onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
+                  className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="mysql-database" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Database Name (Auto-created if missing)
+              </label>
+              <input
+                id="mysql-database"
+                type="text"
                 required
-                value={form.port}
-                onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
+                value={form.database}
+                onChange={(e) => setForm({ ...form, database: e.target.value })}
+                placeholder="discbase_catalog"
                 className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
-          </div>
 
-          <div>
-            <label htmlFor="mysql-database" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Database Name (Auto-created if missing)
-            </label>
-            <input
-              id="mysql-database"
-              type="text"
-              required
-              value={form.database}
-              onChange={(e) => setForm({ ...form, database: e.target.value })}
-              placeholder="discbase_catalog"
-              className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-            />
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="mysql-user" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Username
+                </label>
+                <input
+                  id="mysql-user"
+                  type="text"
+                  required
+                  value={form.user}
+                  onChange={(e) => setForm({ ...form, user: e.target.value })}
+                  placeholder="discbase_user"
+                  className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="mysql-user" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Username
-              </label>
-              <input
-                id="mysql-user"
-                type="text"
-                required
-                value={form.user}
-                onChange={(e) => setForm({ ...form, user: e.target.value })}
-                placeholder="discbase_user"
-                className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
+              <div>
+                <label htmlFor="mysql-password" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Password {hasExistingPassword ? '(saved)' : ''}
+                </label>
+                <input
+                  id="mysql-password"
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder={hasExistingPassword ? '•••••••• (unchanged)' : 'Enter password'}
+                  className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
             </div>
 
-            <div>
-              <label htmlFor="mysql-password" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Password {hasExistingPassword ? '(saved)' : ''}
+            <div className="flex flex-col gap-2 pt-1">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.autoConnect}
+                  onChange={(e) => setForm({ ...form, autoConnect: e.target.checked })}
+                  className="w-4 h-4 accent-blue-700"
+                />
+                <span>Connect automatically to MySQL when application starts</span>
               </label>
-              <input
-                id="mysql-password"
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder={hasExistingPassword ? '•••••••• (unchanged)' : 'Enter password'}
-                className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
+              <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.ssl}
+                  onChange={(e) => setForm({ ...form, ssl: e.target.checked })}
+                  className="w-4 h-4 accent-blue-700"
+                />
+                <span>Use SSL/TLS encrypted connection</span>
+              </label>
             </div>
-          </div>
 
-          <div className="flex flex-col gap-2 pt-1">
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.autoConnect}
-                onChange={(e) => setForm({ ...form, autoConnect: e.target.checked })}
-                className="w-4 h-4 accent-blue-700"
-              />
-              <span>Connect automatically when application starts</span>
-            </label>
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.ssl}
-                onChange={(e) => setForm({ ...form, ssl: e.target.checked })}
-                className="w-4 h-4 accent-blue-700"
-              />
-              <span>Use SSL/TLS encrypted connection</span>
-            </label>
-          </div>
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={testing}
+                onClick={handleTest}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+              >
+                <RefreshCw className={`w-4 h-4 ${testing ? 'animate-spin' : ''}`} />
+                <span>{testing ? 'Testing...' : 'Test Connection'}</span>
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 rounded-lg cursor-pointer"
+              >
+                <PlugZap className="w-4 h-4" />
+                <span>{saving ? 'Connecting...' : 'Save & Auto-Connect'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <button
-              type="button"
-              disabled={testing}
-              onClick={handleTest}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
-            >
-              <RefreshCw className={`w-4 h-4 ${testing ? 'animate-spin' : ''}`} />
-              <span>{testing ? 'Testing...' : 'Test Connection'}</span>
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 rounded-lg cursor-pointer"
-            >
-              <PlugZap className="w-4 h-4" />
-              <span>{saving ? 'Connecting...' : 'Save & Auto-Connect'}</span>
-            </button>
-          </div>
-        </form>
-
-        {/* Desktop Packaging & Schema SQL */}
+        {/* Right Column: Desktop Packaging & Database Schemas */}
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -479,10 +744,36 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
           </div>
 
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                MySQL Schema (Auto-Initialized on Connect)
-              </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                  Database Schema
+                </h2>
+                <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-800 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSchemaTab('sqlite')}
+                    className={`px-2 py-0.5 rounded cursor-pointer ${
+                      activeSchemaTab === 'sqlite'
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    SQLite 3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSchemaTab('mysql')}
+                    className={`px-2 py-0.5 rounded cursor-pointer ${
+                      activeSchemaTab === 'mysql'
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    MySQL
+                  </button>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={handleCopySql}
@@ -492,8 +783,8 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
                 <span>{copiedSql ? 'Copied' : 'Copy SQL'}</span>
               </button>
             </div>
-            <pre className="p-3.5 bg-slate-900 dark:bg-slate-950 text-slate-100 border border-slate-800 rounded-md text-[11px] font-mono-tabular overflow-auto max-h-60 leading-relaxed">
-              {schemaSql || '-- Loading schema.sql...'}
+            <pre className="p-3.5 bg-slate-900 dark:bg-slate-950 text-slate-100 border border-slate-800 rounded-md text-[11px] font-mono-tabular overflow-auto max-h-64 leading-relaxed">
+              {activeSchemaText || '-- Loading schema...'}
             </pre>
           </div>
         </div>

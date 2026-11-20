@@ -4,15 +4,20 @@ copyright: Copyright © 2026 DiscBase Studio
 publish: null
 asarUnpack:
   - dist/**/*
+  - dist-server/sql-wasm.wasm
   - server/schema.sql
+  - server/schema.sqlite.sql
+  - server/sql-wasm.wasm
 directories:
   output: dist-electron
   buildResources: build-resources
 files:
   - dist/**/*
-  - dist-server/server.cjs
+  - dist-server/**/*
   - electron/**/*
   - server/schema.sql
+  - server/schema.sqlite.sql
+  - server/sql-wasm.wasm
   - package.json
 extraMetadata:
   main: electron/main.cjs

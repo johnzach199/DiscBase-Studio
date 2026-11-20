@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -42,6 +42,29 @@ ipcMain.on('window-toggle-maximize', () => {
 
 ipcMain.on('window-close', () => {
   if (mainWindow) mainWindow.close();
+});
+
+ipcMain.handle('pick-sqlite-file', async (_event, opts = {}) => {
+  const defaultDir = path.join(app.getPath('userData'), 'discbase-data', 'discbase_catalog.sqlite');
+  const filters = [
+    { name: 'SQLite Database', extensions: ['sqlite', 'db', 'sqlite3'] },
+    { name: 'All Files', extensions: ['*'] },
+  ];
+  if (opts && opts.mode === 'save') {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      title: 'Create or Select SQLite Database',
+      defaultPath: opts.defaultPath || defaultDir,
+      filters,
+    });
+    return res.canceled ? null : res.filePath || null;
+  }
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Open Existing SQLite Database',
+    defaultPath: opts?.defaultPath || path.dirname(defaultDir),
+    properties: ['openFile'],
+    filters,
+  });
+  return res.canceled ? null : res.filePaths?.[0] || null;
 });
 
 async function createWindow() {

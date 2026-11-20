@@ -115,12 +115,12 @@ export default function App() {
         throw new Error(data.error || 'Failed to save record');
       }
       setEditingAlbum(data.album);
+      const storeLabel =
+        dbStatus?.mode === 'mysql' ? 'MySQL' : dbStatus?.mode === 'sqlite' ? 'SQLite' : 'Local Store';
       setSaveMessage(
         isUpdate
-          ? `Updated "${data.album.album_title}" in ${dbStatus?.mode === 'mysql' ? 'MySQL' : 'Local Store'}.`
-          : `Saved "${data.album.album_title}" (${data.album.songs.length} tracks) to ${
-              dbStatus?.mode === 'mysql' ? 'MySQL' : 'Local Store'
-            }.`
+          ? `Updated "${data.album.album_title}" in ${storeLabel}.`
+          : `Saved "${data.album.album_title}" (${data.album.songs.length} tracks) to ${storeLabel}.`
       );
       await Promise.all([fetchAlbums(searchQuery), fetchDbStatus()]);
     } catch (err) {

@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import mysql from 'mysql2/promise';
 import type { Pool, PoolOptions, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
-import type { Album, AlbumSummary, DbStatus, Musician, MysqlConfig, Song } from '../src/types/catalog';
+import initSqlJs from 'sql.js';
+import type { Database as SqlJsDatabase, SqlJsStatic } from 'sql.js';
+import type { Album, AlbumSummary, DbStatus, Musician, MysqlConfig, Song, SqliteConfig } from '../src/types/catalog';
 import { computeAlbumStats, computeSongSeconds } from '../src/utils/catalogMath';
 import { getInitialSeedAlbums } from './seedData';
 
@@ -15,6 +17,12 @@ export class CatalogDatabase {
   private dataDir: string;
   private localStorePath: string;
   private configPath: string;
+  private sqliteConfigPath: string;
+  private sqlitePath: string;
+  private sqlJs: SqlJsStatic | null = null;
+  private sqliteDb: SqlJsDatabase | null = null;
+  private lastSqliteError = '';
+
   private mysqlPool: Pool | null = null;
   private mysqlConfig: MysqlConfig;
   private mysqlConnected = false;
@@ -27,7 +35,29 @@ export class CatalogDatabase {
     }
     this.localStorePath = path.join(this.dataDir, 'catalog.json');
     this.configPath = path.join(this.dataDir, 'mysql-config.json');
+    this.sqliteConfigPath = path.join(this.dataDir, 'sqlite-config.json');
+    this.sqlitePath = this.loadSqlitePath();
     this.mysqlConfig = this.loadMysqlConfig();
+  }
+
+  private loadSqlitePath(): string {
+    const fallback = process.env.SQLITE_DB_PATH || path.join(this.dataDir, 'discbase_catalog.sqlite');
+    if (fs.existsSync(this.sqliteConfigPath)) {
+      try {
+        const saved = JSON.parse(fs.readFileSync(this.sqliteConfigPath, 'utf-8')) as Partial<SqliteConfig>;
+        if (saved.filePath && saved.filePath.trim()) {
+          return path.resolve(saved.filePath.trim());
+        }
+      } catch {
+        return path.resolve(fallback);
+      }
+    }
+    return path.resolve(fallback);
+  }
+
+  private saveSqliteConfig(filePath: string): void {
+    const cfg: SqliteConfig = { filePath };
+    fs.writeFileSync(this.sqliteConfigPath, JSON.stringify(cfg, null, 2), 'utf-8');
   }
 
   private loadMysqlConfig(): MysqlConfig {
@@ -73,8 +103,12 @@ export class CatalogDatabase {
     };
   }
 
+  public getSqliteConfig(): SqliteConfig {
+    return { filePath: this.sqlitePath };
+  }
+
   public async initialize(): Promise<void> {
-    this.ensureLocalStoreSeeded();
+    await this.initSqliteDatabase(this.sqlitePath, true);
     if (
       this.mysqlConfig.autoConnect &&
       this.mysqlConfig.host.trim() &&
@@ -84,6 +118,392 @@ export class CatalogDatabase {
       await this.connectMysql(this.mysqlConfig);
     }
   }
+
+  // ---------------- SQLite Engine (sql.js WASM + Atomic File Persistence) ----------------
+
+  private resolveSqlWasmPath(): string | null {
+    const appRoot = process.env.APP_ROOT_DIR || '';
+    const unpackedRoot = appRoot.endsWith('app.asar')
+      ? appRoot.replace(/app\.asar$/, 'app.asar.unpacked')
+      : '';
+    const candidates = [
+      unpackedRoot ? path.resolve(unpackedRoot, 'server/sql-wasm.wasm') : '',
+      unpackedRoot ? path.resolve(unpackedRoot, 'dist-server/sql-wasm.wasm') : '',
+      appRoot ? path.resolve(appRoot, 'server/sql-wasm.wasm') : '',
+      appRoot ? path.resolve(appRoot, 'dist-server/sql-wasm.wasm') : '',
+      typeof __dirname !== 'undefined' ? path.resolve(__dirname, 'sql-wasm.wasm') : '',
+      typeof __dirname !== 'undefined' ? path.resolve(__dirname, '../server/sql-wasm.wasm') : '',
+      path.resolve(process.cwd(), 'server/sql-wasm.wasm'),
+      path.resolve(process.cwd(), 'dist-server/sql-wasm.wasm'),
+      path.resolve(process.cwd(), 'node_modules/sql.js/dist/sql-wasm.wasm'),
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private resolveFileInApp(relativePath: string): string | null {
+    const appRoot = process.env.APP_ROOT_DIR || '';
+    const unpackedRoot = appRoot.endsWith('app.asar')
+      ? appRoot.replace(/app\.asar$/, 'app.asar.unpacked')
+      : '';
+    const candidates = [
+      unpackedRoot ? path.resolve(unpackedRoot, relativePath) : '',
+      appRoot ? path.resolve(appRoot, relativePath) : '',
+      typeof __dirname !== 'undefined' ? path.resolve(__dirname, '..', relativePath) : '',
+      path.resolve(process.cwd(), relativePath),
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private async ensureSqlJsLoaded(): Promise<SqlJsStatic> {
+    if (this.sqlJs) return this.sqlJs;
+    const wasmPath = this.resolveSqlWasmPath();
+    if (!wasmPath) {
+      throw new Error('Could not locate sql-wasm.wasm for SQLite engine.');
+    }
+    const wasmBuffer = fs.readFileSync(wasmPath);
+    const wasmBinary = wasmBuffer.buffer.slice(
+      wasmBuffer.byteOffset,
+      wasmBuffer.byteOffset + wasmBuffer.byteLength
+    );
+    this.sqlJs = await initSqlJs({
+      wasmBinary,
+      useOldExtensionFunctions: false,
+    });
+    return this.sqlJs;
+  }
+
+  private getSqliteSchemaSql(): string {
+    const schemaPath = this.resolveFileInApp('server/schema.sqlite.sql');
+    if (schemaPath) {
+      return fs.readFileSync(schemaPath, 'utf-8');
+    }
+    return `
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE IF NOT EXISTS albums (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barcode TEXT NOT NULL DEFAULT '',
+        catalog_number TEXT NOT NULL DEFAULT '',
+        label TEXT NOT NULL DEFAULT '',
+        phonographic_company TEXT NOT NULL DEFAULT '',
+        format TEXT NOT NULL DEFAULT 'CD',
+        album_artist TEXT NOT NULL DEFAULT '',
+        featured_artists TEXT DEFAULT '',
+        album_title TEXT NOT NULL,
+        album_time TEXT NOT NULL DEFAULT '00:00',
+        total_seconds INTEGER NOT NULL DEFAULT 0,
+        release_date TEXT NOT NULL DEFAULT '',
+        return_date TEXT NOT NULL DEFAULT '',
+        album_music_category TEXT NOT NULL DEFAULT '',
+        producer TEXT NOT NULL DEFAULT '',
+        production_company TEXT NOT NULL DEFAULT '',
+        print_design TEXT NOT NULL DEFAULT '',
+        cd_digital_playlist_link TEXT DEFAULT '',
+        physical_product_web_link TEXT DEFAULT '',
+        notes TEXT DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS album_musicians (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        album_id INTEGER NOT NULL,
+        role TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS songs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        album_id INTEGER NOT NULL,
+        track_no TEXT NOT NULL DEFAULT '',
+        title_gr TEXT NOT NULL DEFAULT '',
+        title_en TEXT NOT NULL DEFAULT '',
+        duration_min INTEGER NULL,
+        duration_sec INTEGER NULL,
+        total_seconds INTEGER NOT NULL DEFAULT 0,
+        full_track INTEGER NULL DEFAULT NULL,
+        pot_pouri INTEGER NULL DEFAULT NULL,
+        isrc_code TEXT NOT NULL DEFAULT '',
+        iswc_code TEXT NOT NULL DEFAULT '',
+        autodia_code TEXT NOT NULL DEFAULT '',
+        composer_gr TEXT NOT NULL DEFAULT '',
+        composer_en TEXT NOT NULL DEFAULT '',
+        songwriter_gr TEXT NOT NULL DEFAULT '',
+        songwriter_en TEXT NOT NULL DEFAULT '',
+        digital_web_link TEXT DEFAULT '',
+        singer_gr TEXT NOT NULL DEFAULT '',
+        singer_en TEXT NOT NULL DEFAULT '',
+        aepi_percent REAL NULL DEFAULT NULL,
+        final_aepi_percent REAL NULL DEFAULT NULL,
+        notes TEXT DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
+      );
+    `;
+  }
+
+  private sqliteAll<T = Record<string, unknown>>(
+    sql: string,
+    params: Array<string | number | null> = []
+  ): T[] {
+    if (!this.sqliteDb) throw new Error('SQLite database is not initialized.');
+    const stmt = this.sqliteDb.prepare(sql);
+    try {
+      if (params.length > 0) {
+        stmt.bind(params);
+      }
+      const rows: T[] = [];
+      while (stmt.step()) {
+        rows.push(stmt.getAsObject() as T);
+      }
+      return rows;
+    } finally {
+      stmt.free();
+    }
+  }
+
+  private sqliteRun(sql: string, params: Array<string | number | null> = []): void {
+    if (!this.sqliteDb) throw new Error('SQLite database is not initialized.');
+    const stmt = this.sqliteDb.prepare(sql);
+    try {
+      if (params.length > 0) {
+        stmt.bind(params);
+      }
+      stmt.step();
+    } finally {
+      stmt.free();
+    }
+  }
+
+  private persistSqlite(): void {
+    if (!this.sqliteDb) return;
+    const dir = path.dirname(this.sqlitePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const bytes = this.sqliteDb.export();
+    const tmpPath = `${this.sqlitePath}.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(tmpPath, Buffer.from(bytes));
+    fs.renameSync(tmpPath, this.sqlitePath);
+  }
+
+  private async initSqliteDatabase(targetPath: string, seedIfNew: boolean): Promise<void> {
+    try {
+      const SQL = await this.ensureSqlJsLoaded();
+      const resolved = path.resolve(targetPath);
+      const existed = fs.existsSync(resolved);
+
+      const db = existed
+        ? new SQL.Database(new Uint8Array(fs.readFileSync(resolved)))
+        : new SQL.Database();
+
+      db.exec('PRAGMA foreign_keys = ON;');
+      db.exec(this.getSqliteSchemaSql());
+
+      if (this.sqliteDb) {
+        this.sqliteDb.close();
+      }
+      this.sqliteDb = db;
+      this.sqlitePath = resolved;
+      this.lastSqliteError = '';
+
+      if (!existed) {
+        if (seedIfNew) {
+          if (fs.existsSync(this.localStorePath)) {
+            // Migrate any existing local JSON catalog into SQLite automatically
+            const legacy = JSON.parse(fs.readFileSync(this.localStorePath, 'utf-8')) as LocalStore;
+            for (const album of legacy.albums || []) {
+              this.insertAlbumIntoSqlite(this.normalizeAlbumPayload(album));
+            }
+          } else {
+            const seeds = getInitialSeedAlbums();
+            for (const seed of seeds) {
+              this.insertAlbumIntoSqlite(this.normalizeAlbumPayload(seed));
+            }
+          }
+        }
+        this.persistSqlite();
+      }
+    } catch (err) {
+      this.lastSqliteError = err instanceof Error ? err.message : 'Failed to initialize SQLite database';
+    }
+  }
+
+  public async connectSqlite(filePath: string): Promise<DbStatus> {
+    const trimmed = filePath.trim();
+    if (!trimmed) {
+      throw new Error('SQLite database file path is required.');
+    }
+    const resolved = path.resolve(trimmed);
+    const existed = fs.existsSync(resolved);
+
+    // Switch active engine away from MySQL so SQLite is active immediately
+    if (this.mysqlPool) {
+      await this.mysqlPool.end().catch(() => {});
+      this.mysqlPool = null;
+    }
+    this.mysqlConnected = false;
+    this.lastMysqlError = '';
+    this.mysqlConfig = { ...this.mysqlConfig, autoConnect: false };
+    fs.writeFileSync(this.configPath, JSON.stringify(this.mysqlConfig, null, 2), 'utf-8');
+
+    await this.initSqliteDatabase(resolved, !existed && resolved === path.resolve(this.dataDir, 'discbase_catalog.sqlite'));
+    if (this.lastSqliteError) {
+      throw new Error(this.lastSqliteError);
+    }
+    this.saveSqliteConfig(resolved);
+    return this.getDbStatus();
+  }
+
+  public async importSqliteBuffer(buffer: Buffer, filename?: string): Promise<DbStatus> {
+    const SQL = await this.ensureSqlJsLoaded();
+    const candidateDb = new SQL.Database(new Uint8Array(buffer));
+    try {
+      candidateDb.exec('PRAGMA foreign_keys = ON;');
+      candidateDb.exec(this.getSqliteSchemaSql());
+    } catch (err) {
+      candidateDb.close();
+      throw new Error(err instanceof Error ? `Invalid SQLite database file: ${err.message}` : 'Invalid SQLite file');
+    }
+
+    const cleanName = (filename || 'imported_catalog.sqlite').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const targetName = /\.(sqlite|db|sqlite3)$/i.test(cleanName) ? cleanName : `${cleanName}.sqlite`;
+    const targetPath = path.join(this.dataDir, targetName);
+
+    if (this.mysqlPool) {
+      await this.mysqlPool.end().catch(() => {});
+      this.mysqlPool = null;
+    }
+    this.mysqlConnected = false;
+    this.mysqlConfig = { ...this.mysqlConfig, autoConnect: false };
+    fs.writeFileSync(this.configPath, JSON.stringify(this.mysqlConfig, null, 2), 'utf-8');
+
+    if (this.sqliteDb) {
+      this.sqliteDb.close();
+    }
+    this.sqliteDb = candidateDb;
+    this.sqlitePath = targetPath;
+    this.lastSqliteError = '';
+    this.persistSqlite();
+    this.saveSqliteConfig(targetPath);
+
+    return this.getDbStatus();
+  }
+
+  public getSqliteFileForDownload(): { filename: string; bytes: Buffer } {
+    if (!this.sqliteDb) {
+      throw new Error('SQLite database is not initialized.');
+    }
+    this.persistSqlite();
+    return {
+      filename: path.basename(this.sqlitePath) || 'discbase_catalog.sqlite',
+      bytes: fs.readFileSync(this.sqlitePath),
+    };
+  }
+
+  private insertAlbumIntoSqlite(clean: Album): number {
+    if (!this.sqliteDb) throw new Error('SQLite database is not initialized.');
+    this.sqliteDb.exec('BEGIN TRANSACTION;');
+    try {
+      this.sqliteRun(
+        `INSERT INTO albums (
+          barcode, catalog_number, label, phonographic_company, format,
+          album_artist, featured_artists, album_title, album_time, total_seconds,
+          release_date, return_date, album_music_category, producer, production_company,
+          print_design, cd_digital_playlist_link, physical_product_web_link, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          clean.barcode,
+          clean.catalog_number,
+          clean.label,
+          clean.phonographic_company,
+          clean.format,
+          clean.album_artist,
+          clean.featured_artists,
+          clean.album_title,
+          clean.album_time,
+          clean.total_seconds,
+          clean.release_date,
+          clean.return_date,
+          clean.album_music_category,
+          clean.producer,
+          clean.production_company,
+          clean.print_design,
+          clean.cd_digital_playlist_link,
+          clean.physical_product_web_link,
+          clean.notes,
+        ]
+      );
+      const idRows = this.sqliteAll<{ id: number }>('SELECT last_insert_rowid() AS id');
+      const albumId = Number(idRows[0]?.id || 0);
+
+      for (const m of clean.musicians) {
+        this.sqliteRun(
+          'INSERT INTO album_musicians (album_id, role, name, sort_order) VALUES (?, ?, ?, ?)',
+          [albumId, m.role, m.name, m.sort_order]
+        );
+      }
+
+      for (const s of clean.songs) {
+        this.sqliteRun(
+          `INSERT INTO songs (
+            album_id, track_no, title_gr, title_en, duration_min, duration_sec,
+            total_seconds, full_track, pot_pouri, isrc_code, iswc_code, autodia_code,
+            composer_gr, composer_en, songwriter_gr, songwriter_en, digital_web_link,
+            singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, sort_order
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            albumId,
+            s.track_no,
+            s.title_gr,
+            s.title_en,
+            s.duration_min,
+            s.duration_sec,
+            s.total_seconds,
+            s.full_track ? 1 : null,
+            s.pot_pouri ? 1 : null,
+            s.isrc_code,
+            s.iswc_code,
+            s.autodia_code,
+            s.composer_gr,
+            s.composer_en,
+            s.songwriter_gr,
+            s.songwriter_en,
+            s.digital_web_link,
+            s.singer_gr,
+            s.singer_en,
+            s.aepi_percent,
+            s.final_aepi_percent,
+            s.notes,
+            s.sort_order,
+          ]
+        );
+      }
+
+      this.sqliteDb.exec('COMMIT;');
+      return albumId;
+    } catch (err) {
+      try {
+        this.sqliteDb.exec('ROLLBACK;');
+      } catch {
+        // ignore rollback failure
+      }
+      throw err;
+    }
+  }
+
+  // ---------------- MySQL Helpers ----------------
 
   private buildPoolOptions(cfg: MysqlConfig, includeDb = true): PoolOptions {
     const opts: PoolOptions = {
@@ -171,7 +591,6 @@ export class CatalogDatabase {
 
   private async connectMysql(cfg: MysqlConfig): Promise<void> {
     try {
-      // Ensure database exists first
       const bootstrapConn = await mysql.createConnection(this.buildPoolOptions(cfg, false));
       const safeDbName = cfg.database.trim().replace(/[^a-zA-Z0-9_$-]/g, '');
       await bootstrapConn.query(
@@ -191,28 +610,8 @@ export class CatalogDatabase {
     }
   }
 
-  private resolveSchemaPath(): string | null {
-    const appRoot = process.env.APP_ROOT_DIR || '';
-    const unpackedRoot = appRoot.endsWith('app.asar')
-      ? appRoot.replace(/app\.asar$/, 'app.asar.unpacked')
-      : '';
-    const candidates = [
-      unpackedRoot ? path.resolve(unpackedRoot, 'server/schema.sql') : '',
-      appRoot ? path.resolve(appRoot, 'server/schema.sql') : '',
-      typeof __dirname !== 'undefined' ? path.resolve(__dirname, '../server/schema.sql') : '',
-      path.resolve(process.cwd(), 'server/schema.sql'),
-    ].filter(Boolean);
-
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
   private async ensureMysqlSchema(pool: Pool): Promise<void> {
-    const schemaPath = this.resolveSchemaPath();
+    const schemaPath = this.resolveFileInApp('server/schema.sql');
     if (!schemaPath) return;
     const sql = fs.readFileSync(schemaPath, 'utf-8');
     const statements = sql
@@ -235,6 +634,7 @@ export class CatalogDatabase {
           host: this.mysqlConfig.host,
           port: this.mysqlConfig.port,
           database: this.mysqlConfig.database,
+          sqlitePath: this.sqlitePath,
           albumCount: Number(aRows[0]?.cnt || 0),
           songCount: Number(sRows[0]?.cnt || 0),
           autoConnect: this.mysqlConfig.autoConnect,
@@ -245,6 +645,23 @@ export class CatalogDatabase {
       }
     }
 
+    if (this.sqliteDb) {
+      const aRows = this.sqliteAll<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM albums');
+      const sRows = this.sqliteAll<{ cnt: number }>('SELECT COUNT(*) AS cnt FROM songs');
+      return {
+        mode: 'sqlite',
+        connected: true,
+        host: this.mysqlConfig.host || undefined,
+        port: this.mysqlConfig.port,
+        database: this.mysqlConfig.database || undefined,
+        sqlitePath: this.sqlitePath,
+        error: this.lastMysqlError || undefined,
+        albumCount: Number(aRows[0]?.cnt || 0),
+        songCount: Number(sRows[0]?.cnt || 0),
+        autoConnect: this.mysqlConfig.autoConnect,
+      };
+    }
+
     const local = this.readLocalStore();
     const songCount = local.albums.reduce((acc, a) => acc + a.songs.length, 0);
     return {
@@ -253,7 +670,7 @@ export class CatalogDatabase {
       host: this.mysqlConfig.host || undefined,
       port: this.mysqlConfig.port,
       database: this.mysqlConfig.database || undefined,
-      error: this.lastMysqlError || undefined,
+      error: this.lastSqliteError || this.lastMysqlError || undefined,
       albumCount: local.albums.length,
       songCount,
       autoConnect: this.mysqlConfig.autoConnect,
@@ -264,7 +681,18 @@ export class CatalogDatabase {
     if (!this.mysqlConnected || !this.mysqlPool) {
       throw new Error('MySQL is not connected.');
     }
-    const local = this.readLocalStore();
+
+    const localAlbums: Album[] = [];
+    if (this.sqliteDb) {
+      const ids = this.sqliteAll<{ id: number }>('SELECT id FROM albums ORDER BY id ASC');
+      for (const row of ids) {
+        const album = this.getAlbumFromSqlite(Number(row.id));
+        if (album) localAlbums.push(album);
+      }
+    } else {
+      localAlbums.push(...this.readLocalStore().albums);
+    }
+
     const existing = await this.listAlbums();
     const existingKeys = new Set(
       existing.map((a) => `${a.catalog_number.toLowerCase()}::${a.barcode.toLowerCase()}`)
@@ -272,7 +700,7 @@ export class CatalogDatabase {
 
     let imported = 0;
     let skipped = 0;
-    for (const album of local.albums) {
+    for (const album of localAlbums) {
       const key = `${album.catalog_number.toLowerCase()}::${album.barcode.toLowerCase()}`;
       if (existingKeys.has(key)) {
         skipped += 1;
@@ -284,7 +712,7 @@ export class CatalogDatabase {
     return { imported, skipped };
   }
 
-  // ---------------- Local Store Helpers ----------------
+  // ---------------- Legacy JSON Local Store Fallback ----------------
 
   private ensureLocalStoreSeeded(): void {
     if (fs.existsSync(this.localStorePath)) return;
@@ -367,7 +795,10 @@ export class CatalogDatabase {
       album_artist: (input.album_artist || '').trim(),
       featured_artists: (input.featured_artists || '').trim(),
       album_title: (input.album_title || '').trim(),
-      album_time: input.album_time?.trim() || stats.formattedTime,
+      album_time:
+        !input.album_time?.trim() || (input.album_time.trim() === '00:00' && stats.totalSeconds > 0)
+          ? stats.formattedTime
+          : input.album_time.trim(),
       total_seconds: stats.totalSeconds,
       release_date: (input.release_date || '').trim(),
       return_date: (input.return_date || '').trim(),
@@ -380,6 +811,80 @@ export class CatalogDatabase {
       notes: (input.notes || '').trim(),
       musicians,
       songs,
+    };
+  }
+
+  private getAlbumFromSqlite(id: number): Album | null {
+    const aRows = this.sqliteAll<Record<string, unknown>>('SELECT * FROM albums WHERE id = ?', [id]);
+    if (aRows.length === 0) return null;
+    const a = aRows[0];
+
+    const mRows = this.sqliteAll<Record<string, unknown>>(
+      'SELECT * FROM album_musicians WHERE album_id = ? ORDER BY sort_order ASC, id ASC',
+      [id]
+    );
+    const sRows = this.sqliteAll<Record<string, unknown>>(
+      'SELECT * FROM songs WHERE album_id = ? ORDER BY sort_order ASC, id ASC',
+      [id]
+    );
+
+    return {
+      id: Number(a.id),
+      barcode: String(a.barcode || ''),
+      catalog_number: String(a.catalog_number || ''),
+      label: String(a.label || ''),
+      phonographic_company: String(a.phonographic_company || ''),
+      format: String(a.format || 'CD'),
+      album_artist: String(a.album_artist || ''),
+      featured_artists: String(a.featured_artists || ''),
+      album_title: String(a.album_title || ''),
+      album_time: String(a.album_time || '00:00'),
+      total_seconds: Number(a.total_seconds || 0),
+      release_date: String(a.release_date || ''),
+      return_date: String(a.return_date || ''),
+      album_music_category: String(a.album_music_category || ''),
+      producer: String(a.producer || ''),
+      production_company: String(a.production_company || ''),
+      print_design: String(a.print_design || ''),
+      cd_digital_playlist_link: String(a.cd_digital_playlist_link || ''),
+      physical_product_web_link: String(a.physical_product_web_link || ''),
+      notes: String(a.notes || ''),
+      created_at: a.created_at ? String(a.created_at) : undefined,
+      updated_at: a.updated_at ? String(a.updated_at) : undefined,
+      musicians: mRows.map((m) => ({
+        id: Number(m.id),
+        role: String(m.role || ''),
+        name: String(m.name || ''),
+        sort_order: Number(m.sort_order || 0),
+      })),
+      songs: sRows.map((s) => ({
+        id: Number(s.id),
+        track_no: String(s.track_no || ''),
+        title_gr: String(s.title_gr || ''),
+        title_en: String(s.title_en || ''),
+        duration_min: s.duration_min !== null && s.duration_min !== undefined ? Number(s.duration_min) : null,
+        duration_sec: s.duration_sec !== null && s.duration_sec !== undefined ? Number(s.duration_sec) : null,
+        total_seconds: Number(s.total_seconds || 0),
+        full_track: Number(s.full_track) === 1,
+        pot_pouri: Number(s.pot_pouri) === 1,
+        isrc_code: String(s.isrc_code || ''),
+        iswc_code: String(s.iswc_code || ''),
+        autodia_code: String(s.autodia_code || ''),
+        composer_gr: String(s.composer_gr || ''),
+        composer_en: String(s.composer_en || ''),
+        songwriter_gr: String(s.songwriter_gr || ''),
+        songwriter_en: String(s.songwriter_en || ''),
+        digital_web_link: String(s.digital_web_link || ''),
+        singer_gr: String(s.singer_gr || ''),
+        singer_en: String(s.singer_en || ''),
+        aepi_percent: s.aepi_percent !== null && s.aepi_percent !== undefined ? Number(s.aepi_percent) : null,
+        final_aepi_percent:
+          s.final_aepi_percent !== null && s.final_aepi_percent !== undefined
+            ? Number(s.final_aepi_percent)
+            : null,
+        notes: String(s.notes || ''),
+        sort_order: Number(s.sort_order || 0),
+      })),
     };
   }
 
@@ -431,6 +936,66 @@ export class CatalogDatabase {
           a.album_artist.toLowerCase().includes(q) ||
           a.label.toLowerCase().includes(q) ||
           a.album_music_category.toLowerCase().includes(q)
+      );
+    }
+
+    if (this.sqliteDb) {
+      const rows = this.sqliteAll<Record<string, unknown>>(
+        `SELECT
+          a.id, a.barcode, a.catalog_number, a.label, a.format,
+          a.album_artist, a.album_title, a.album_time, a.total_seconds,
+          a.release_date, a.album_music_category, a.producer, a.updated_at,
+          COUNT(DISTINCT s.id) AS track_count,
+          COALESCE(SUM(CASE WHEN s.full_track = 1 THEN 1 ELSE 0 END), 0) AS full_track_count,
+          COALESCE(SUM(CASE WHEN s.pot_pouri = 1 THEN 1 ELSE 0 END), 0) AS pot_pouri_count,
+          (SELECT COUNT(*) FROM album_musicians m WHERE m.album_id = a.id) AS musician_count
+        FROM albums a
+        LEFT JOIN songs s ON s.album_id = a.id
+        GROUP BY a.id
+        ORDER BY a.id DESC`
+      );
+      const mapped: AlbumSummary[] = rows.map((r) => ({
+        id: Number(r.id),
+        barcode: String(r.barcode || ''),
+        catalog_number: String(r.catalog_number || ''),
+        label: String(r.label || ''),
+        format: String(r.format || ''),
+        album_artist: String(r.album_artist || ''),
+        album_title: String(r.album_title || ''),
+        album_time: String(r.album_time || '00:00'),
+        total_seconds: Number(r.total_seconds || 0),
+        release_date: String(r.release_date || ''),
+        album_music_category: String(r.album_music_category || ''),
+        producer: String(r.producer || ''),
+        track_count: Number(r.track_count || 0),
+        full_track_count: Number(r.full_track_count || 0),
+        pot_pouri_count: Number(r.pot_pouri_count || 0),
+        musician_count: Number(r.musician_count || 0),
+        updated_at: r.updated_at ? String(r.updated_at) : undefined,
+      }));
+      if (!q) return mapped;
+
+      const matchingSongAlbumIds = new Set(
+        this.sqliteAll<{ album_id: number }>(
+          `SELECT DISTINCT album_id FROM songs
+           WHERE LOWER(title_gr) LIKE ?
+              OR LOWER(title_en) LIKE ?
+              OR LOWER(isrc_code) LIKE ?
+              OR LOWER(singer_gr) LIKE ?
+              OR LOWER(composer_gr) LIKE ?`,
+          [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+        ).map((row) => Number(row.album_id))
+      );
+
+      return mapped.filter(
+        (a) =>
+          a.album_title.toLowerCase().includes(q) ||
+          a.catalog_number.toLowerCase().includes(q) ||
+          a.barcode.toLowerCase().includes(q) ||
+          a.album_artist.toLowerCase().includes(q) ||
+          a.label.toLowerCase().includes(q) ||
+          a.album_music_category.toLowerCase().includes(q) ||
+          matchingSongAlbumIds.has(a.id)
       );
     }
 
@@ -557,6 +1122,10 @@ export class CatalogDatabase {
       };
     }
 
+    if (this.sqliteDb) {
+      return this.getAlbumFromSqlite(id);
+    }
+
     const store = this.readLocalStore();
     return store.albums.find((a) => a.id === id) || null;
   }
@@ -652,6 +1221,14 @@ export class CatalogDatabase {
       } finally {
         conn.release();
       }
+    }
+
+    if (this.sqliteDb) {
+      const albumId = this.insertAlbumIntoSqlite(clean);
+      this.persistSqlite();
+      const created = this.getAlbumFromSqlite(albumId);
+      if (!created) throw new Error('Failed to load created album from SQLite.');
+      return created;
     }
 
     const store = this.readLocalStore();
@@ -764,6 +1341,102 @@ export class CatalogDatabase {
       }
     }
 
+    if (this.sqliteDb) {
+      const existing = this.sqliteAll<{ id: number }>('SELECT id FROM albums WHERE id = ?', [id]);
+      if (existing.length === 0) return null;
+
+      this.sqliteDb.exec('BEGIN TRANSACTION;');
+      try {
+        this.sqliteRun(
+          `UPDATE albums SET
+            barcode = ?, catalog_number = ?, label = ?, phonographic_company = ?, format = ?,
+            album_artist = ?, featured_artists = ?, album_title = ?, album_time = ?, total_seconds = ?,
+            release_date = ?, return_date = ?, album_music_category = ?, producer = ?, production_company = ?,
+            print_design = ?, cd_digital_playlist_link = ?, physical_product_web_link = ?, notes = ?,
+            updated_at = datetime('now')
+          WHERE id = ?`,
+          [
+            clean.barcode,
+            clean.catalog_number,
+            clean.label,
+            clean.phonographic_company,
+            clean.format,
+            clean.album_artist,
+            clean.featured_artists,
+            clean.album_title,
+            clean.album_time,
+            clean.total_seconds,
+            clean.release_date,
+            clean.return_date,
+            clean.album_music_category,
+            clean.producer,
+            clean.production_company,
+            clean.print_design,
+            clean.cd_digital_playlist_link,
+            clean.physical_product_web_link,
+            clean.notes,
+            id,
+          ]
+        );
+
+        this.sqliteRun('DELETE FROM album_musicians WHERE album_id = ?', [id]);
+        for (const m of clean.musicians) {
+          this.sqliteRun(
+            'INSERT INTO album_musicians (album_id, role, name, sort_order) VALUES (?, ?, ?, ?)',
+            [id, m.role, m.name, m.sort_order]
+          );
+        }
+
+        this.sqliteRun('DELETE FROM songs WHERE album_id = ?', [id]);
+        for (const s of clean.songs) {
+          this.sqliteRun(
+            `INSERT INTO songs (
+              album_id, track_no, title_gr, title_en, duration_min, duration_sec,
+              total_seconds, full_track, pot_pouri, isrc_code, iswc_code, autodia_code,
+              composer_gr, composer_en, songwriter_gr, songwriter_en, digital_web_link,
+              singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              id,
+              s.track_no,
+              s.title_gr,
+              s.title_en,
+              s.duration_min,
+              s.duration_sec,
+              s.total_seconds,
+              s.full_track ? 1 : null,
+              s.pot_pouri ? 1 : null,
+              s.isrc_code,
+              s.iswc_code,
+              s.autodia_code,
+              s.composer_gr,
+              s.composer_en,
+              s.songwriter_gr,
+              s.songwriter_en,
+              s.digital_web_link,
+              s.singer_gr,
+              s.singer_en,
+              s.aepi_percent,
+              s.final_aepi_percent,
+              s.notes,
+              s.sort_order,
+            ]
+          );
+        }
+
+        this.sqliteDb.exec('COMMIT;');
+        this.persistSqlite();
+        return this.getAlbumFromSqlite(id);
+      } catch (err) {
+        try {
+          this.sqliteDb.exec('ROLLBACK;');
+        } catch {
+          // ignore
+        }
+        throw err;
+      }
+    }
+
     const store = this.readLocalStore();
     const idx = store.albums.findIndex((a) => a.id === id);
     if (idx === -1) return null;
@@ -782,6 +1455,16 @@ export class CatalogDatabase {
     if (this.mysqlConnected && this.mysqlPool) {
       const [res] = await this.mysqlPool.query<ResultSetHeader>('DELETE FROM albums WHERE id = ?', [id]);
       return res.affectedRows > 0;
+    }
+
+    if (this.sqliteDb) {
+      this.sqliteDb.exec('PRAGMA foreign_keys = ON;');
+      this.sqliteRun('DELETE FROM albums WHERE id = ?', [id]);
+      const modified = this.sqliteDb.getRowsModified() > 0;
+      if (modified) {
+        this.persistSqlite();
+      }
+      return modified;
     }
 
     const store = this.readLocalStore();

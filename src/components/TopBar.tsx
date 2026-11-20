@@ -12,6 +12,7 @@ declare global {
       minimize?: () => void;
       toggleMaximize?: () => void;
       close?: () => void;
+      pickSqliteFile?: (opts: { mode: 'open' | 'save'; defaultPath?: string }) => Promise<string | null>;
     };
   }
 }
@@ -36,7 +37,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'catalog', label: 'Catalog' },
     { id: 'editor', label: 'Album Sheet' },
     { id: 'import', label: 'XLSX Import' },
-    { id: 'mysql', label: 'MySQL Setup' },
+    { id: 'mysql', label: 'SQLite & MySQL' },
   ];
 
   return (

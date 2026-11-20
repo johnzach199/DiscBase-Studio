@@ -51,7 +51,8 @@ export async function startAppServer(options?: {
     try {
       const status = await db.getDbStatus();
       const config = db.getSafeMysqlConfig();
-      res.json({ status, config });
+      const sqliteConfig = db.getSqliteConfig();
+      res.json({ status, config, sqliteConfig });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Status check failed' });
     }
@@ -59,8 +60,58 @@ export async function startAppServer(options?: {
 
   app.get('/api/db/schema', (_req, res) => {
     const schemaPath = resolveAppPath(options?.appRoot, 'server/schema.sql');
+    const sqliteSchemaPath = resolveAppPath(options?.appRoot, 'server/schema.sqlite.sql');
     const sql = fs.existsSync(schemaPath) ? fs.readFileSync(schemaPath, 'utf-8') : '';
-    res.json({ sql });
+    const sqliteSql = fs.existsSync(sqliteSchemaPath) ? fs.readFileSync(sqliteSchemaPath, 'utf-8') : '';
+    res.json({ sql, sqliteSql });
+  });
+
+  app.post('/api/db/sqlite/connect', async (req, res) => {
+    try {
+      const { filePath } = req.body as { filePath?: string };
+      if (!filePath || !filePath.trim()) {
+        res.status(400).json({ error: 'SQLite file path is required.' });
+        return;
+      }
+      const status = await db.connectSqlite(filePath);
+      res.json({
+        status,
+        sqliteConfig: db.getSqliteConfig(),
+        config: db.getSafeMysqlConfig(),
+      });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to open SQLite database' });
+    }
+  });
+
+  app.post('/api/db/sqlite/upload', async (req, res) => {
+    try {
+      const { base64, filename } = req.body as { base64?: string; filename?: string };
+      if (!base64) {
+        res.status(400).json({ error: 'SQLite file data is required.' });
+        return;
+      }
+      const buffer = Buffer.from(base64, 'base64');
+      const status = await db.importSqliteBuffer(buffer, filename);
+      res.json({
+        status,
+        sqliteConfig: db.getSqliteConfig(),
+        config: db.getSafeMysqlConfig(),
+      });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid SQLite database file' });
+    }
+  });
+
+  app.get('/api/db/sqlite/download', (_req, res) => {
+    try {
+      const { filename, bytes } = db.getSqliteFileForDownload();
+      res.setHeader('Content-Type', 'application/vnd.sqlite3');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(bytes);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to export SQLite file' });
+    }
   });
 
   app.post('/api/db/test', async (req, res) => {
@@ -82,7 +133,7 @@ export async function startAppServer(options?: {
       const cfg = req.body as MysqlConfig;
       const status = await db.saveAndConnectMysql(cfg);
       const safeConfig = db.getSafeMysqlConfig();
-      res.json({ status, config: safeConfig });
+      res.json({ status, config: safeConfig, sqliteConfig: db.getSqliteConfig() });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to save MySQL config' });
     }
@@ -92,7 +143,7 @@ export async function startAppServer(options?: {
     try {
       const status = await db.disconnectMysql();
       const config = db.getSafeMysqlConfig();
-      res.json({ status, config });
+      res.json({ status, config, sqliteConfig: db.getSqliteConfig() });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to disconnect' });
     }

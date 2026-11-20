@@ -92,11 +92,19 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
             onClick={onGoToMysql}
             className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            <Database className={`w-3.5 h-3.5 ${dbStatus?.mode === 'mysql' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`} />
+            <Database
+              className={`w-3.5 h-3.5 ${
+                dbStatus?.mode === 'mysql' || dbStatus?.mode === 'sqlite'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-amber-600 dark:text-amber-400'
+              }`}
+            />
             <span>
               {dbStatus?.mode === 'mysql'
                 ? `MySQL: ${dbStatus.host}/${dbStatus.database}`
-                : 'Local Preview Store (Configure MySQL)'}
+                : dbStatus?.mode === 'sqlite'
+                ? `SQLite: ${dbStatus.sqlitePath ? dbStatus.sqlitePath.split(/[/\\]/).pop() : 'discbase_catalog.sqlite'}`
+                : 'Local Preview Store (Configure DB)'}
             </span>
           </button>
 
@@ -134,10 +142,20 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-3.5">
           <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Active Storage Engine</div>
-          <div className="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span>{dbStatus?.mode === 'mysql' ? 'MySQL Server' : 'Local Store'}</span>
+          <div className="mt-1 text-base font-semibold text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2">
+            <span>
+              {dbStatus?.mode === 'mysql'
+                ? 'MySQL Server'
+                : dbStatus?.mode === 'sqlite'
+                ? 'SQLite 3'
+                : 'Local Store'}
+            </span>
             <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-              {dbStatus?.mode === 'mysql' ? '(Auto-Connected)' : '(Ready for MySQL)'}
+              {dbStatus?.mode === 'mysql'
+                ? '(Auto-Connected)'
+                : dbStatus?.mode === 'sqlite'
+                ? '(Local .sqlite DB)'
+                : '(Fallback)'}
             </span>
           </div>
         </div>
@@ -355,7 +373,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
           onClick={onGoToMysql}
           className="inline-flex items-center gap-1 self-start sm:self-auto text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
         >
-          <span>Manage MySQL Connection</span>
+          <span>Manage SQLite &amp; MySQL Connection</span>
           <ExternalLink className="w-3 h-3" />
         </button>
       </div>

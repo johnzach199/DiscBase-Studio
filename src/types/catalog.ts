@@ -88,12 +88,17 @@ export interface MysqlConfig {
   autoConnect: boolean;
 }
 
+export interface SqliteConfig {
+  filePath: string;
+}
+
 export interface DbStatus {
-  mode: 'mysql' | 'local';
+  mode: 'sqlite' | 'mysql' | 'local';
   connected: boolean;
   host?: string;
   port?: number;
   database?: string;
+  sqlitePath?: string;
   error?: string;
   albumCount: number;
   songCount: number;
