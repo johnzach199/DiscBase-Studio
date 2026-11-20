@@ -37,15 +37,10 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm install --legacy-peer-deps
 
       - name: Install Electron & Electron Builder (dev build tools)
-        run: npm install --no-save electron@35 electron-builder@25
+        run: npm install --no-save --legacy-peer-deps electron@35 electron-builder@25
 
       - name: Install RPM build tools on Ubuntu for Fedora .rpm
         if: matrix.platform == 'linux'
@@ -58,6 +53,8 @@ jobs:
         run: npm run build:electron
 
       - name: Package executable for ${{ matrix.platform }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.yml
 
       - name: Upload built executables
