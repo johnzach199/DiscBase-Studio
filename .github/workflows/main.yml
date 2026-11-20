@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
             artifact_name: fedora-linux-packages
             builder_args: --linux rpm AppImage
@@ -42,11 +42,11 @@ jobs:
       - name: Install Electron & Electron Builder (dev build tools)
         run: npm install --no-save --legacy-peer-deps electron@35 electron-builder@25
 
-      - name: Install RPM build tools on Ubuntu for Fedora .rpm
+      - name: Install RPM build tools for Fedora .rpm
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        run: sudo apt-get update && sudo apt-get install -y rpm binutils xz-utils
 
-      - name: Ensure packaging metadata for Fedora RPM & desktop builds
+      - name: Ensure packaging metadata & electron-builder config
         shell: bash
         run: |
           node -e '
@@ -59,6 +59,52 @@ jobs:
               pkg.author = "DiscBase Studio <support@discbase.local>";
             }
             fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+
+            const isLinux = "${{ matrix.platform }}" === "linux";
+            const cfg = {
+              appId: "com.discbase.studio",
+              productName: isLinux ? "DiscBase-Studio" : "DiscBase Studio",
+              copyright: "Copyright © 2026 DiscBase Studio",
+              publish: null,
+              directories: {
+                output: "dist-electron",
+                buildResources: "build-resources"
+              },
+              files: [
+                "dist/**/*",
+                "dist-server/server.cjs",
+                "electron/**/*",
+                "server/schema.sql",
+                "package.json"
+              ],
+              extraMetadata: {
+                main: "electron/main.cjs"
+              },
+              win: {
+                target: ["nsis", "portable"]
+              },
+              mac: {
+                target: ["dmg", "zip"],
+                category: "public.app-category.music"
+              },
+              linux: {
+                target: ["AppImage", "rpm"],
+                executableName: "discbase-studio",
+                maintainer: "DiscBase Studio <support@discbase.local>",
+                vendor: "DiscBase Studio",
+                category: "AudioVideo",
+                synopsis: "Album & Song Catalog Workstation for MySQL",
+                description: "Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation."
+              },
+              rpm: {
+                compression: "gz",
+                fpm: [
+                  "--rpm-rpmbuild-define=_build_id_links none",
+                  "--rpm-rpmbuild-define=debug_package %{nil}"
+                ]
+              }
+            };
+            fs.writeFileSync("electron-builder.ci.json", JSON.stringify(cfg, null, 2) + "\n");
           '
 
       - name: Run unit tests
@@ -71,7 +117,8 @@ jobs:
         shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.yml --publish never -c.linux.maintainer="DiscBase Studio <support@discbase.local>" -c.linux.vendor="DiscBase Studio"
+          DEBUG: electron-builder
+        run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.ci.json --publish never
 
       - name: Upload built executables
         uses: actions/upload-artifact@v4
