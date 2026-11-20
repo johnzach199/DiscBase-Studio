@@ -46,6 +46,21 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y rpm
 
+      - name: Ensure packaging metadata for Fedora RPM & desktop builds
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            if (!pkg.name || pkg.name === "react-example") pkg.name = "discbase-studio";
+            if (!pkg.version || pkg.version === "0.0.0") pkg.version = "1.0.0";
+            if (!pkg.description) pkg.description = "Album & Song Catalog Workstation with XLSX import/export and MySQL Server integration.";
+            if (!pkg.author || (typeof pkg.author === "string" && !pkg.author.includes("@"))) {
+              pkg.author = "DiscBase Studio <support@discbase.local>";
+            }
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          '
+
       - name: Run unit tests
         run: npm test
 
@@ -53,9 +68,10 @@ jobs:
         run: npm run build:electron
 
       - name: Package executable for ${{ matrix.platform }}
+        shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.yml
+        run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.yml --publish never -c.linux.maintainer="DiscBase Studio <support@discbase.local>" -c.linux.vendor="DiscBase Studio"
 
       - name: Upload built executables
         uses: actions/upload-artifact@v4
