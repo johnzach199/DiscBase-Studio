@@ -81,3 +81,12 @@ test('CatalogDatabase initializes SQLite 3 file, supports CRUD & search, and per
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('CatalogDatabase.splitSqlStatements preserves CREATE TABLE albums despite leading SQL comments', () => {
+  const mysqlSchema = fs.readFileSync(path.resolve(process.cwd(), 'server/schema.sql'), 'utf-8');
+  const statements = CatalogDatabase.splitSqlStatements(mysqlSchema);
+  assert.equal(statements.length, 3);
+  assert.match(statements[0], /^CREATE TABLE IF NOT EXISTS albums\b/i);
+  assert.match(statements[1], /^CREATE TABLE IF NOT EXISTS album_musicians\b/i);
+  assert.match(statements[2], /^CREATE TABLE IF NOT EXISTS songs\b/i);
+});

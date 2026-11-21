@@ -526,6 +526,24 @@ export class CatalogDatabase {
     return opts;
   }
 
+  private formatMysqlError(err: unknown, fallback: string): string {
+    if (!err) return fallback;
+    if (typeof err === 'object' && err !== null) {
+      const e = err as { message?: string; code?: string; sqlMessage?: string; errors?: unknown[] };
+      if (Array.isArray(e.errors) && e.errors.length > 0) {
+        const inner = e.errors
+          .map((item) => this.formatMysqlError(item, ''))
+          .filter(Boolean)
+          .join('; ');
+        if (inner) return inner;
+      }
+      if (e.sqlMessage) return e.sqlMessage;
+      if (e.message && e.message.trim()) return e.message;
+      if (e.code) return `MySQL error (${e.code})`;
+    }
+    return fallback;
+  }
+
   public async testMysqlConnection(cfg: MysqlConfig): Promise<{ ok: boolean; error?: string; version?: string }> {
     let conn: mysql.Connection | null = null;
     try {
@@ -538,7 +556,7 @@ export class CatalogDatabase {
     } catch (err) {
       return {
         ok: false,
-        error: err instanceof Error ? err.message : 'Unable to reach MySQL server.',
+        error: this.formatMysqlError(err, 'Unable to reach MySQL server.'),
       };
     } finally {
       if (conn) {
@@ -590,35 +608,192 @@ export class CatalogDatabase {
   }
 
   private async connectMysql(cfg: MysqlConfig): Promise<void> {
+    let pool: Pool | null = null;
     try {
-      const bootstrapConn = await mysql.createConnection(this.buildPoolOptions(cfg, false));
-      const safeDbName = cfg.database.trim().replace(/[^a-zA-Z0-9_$-]/g, '');
-      await bootstrapConn.query(
-        `CREATE DATABASE IF NOT EXISTS \`${safeDbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-      );
-      await bootstrapConn.end();
+      const safeDbName = cfg.database.trim().replace(/[^a-zA-Z0-9_$-]/g, '') || 'discbase_catalog';
+      const dbCfg = { ...cfg, database: safeDbName };
 
-      const pool = mysql.createPool(this.buildPoolOptions({ ...cfg, database: safeDbName }, true));
+      // First try connecting directly to the target database (works even without global CREATE DATABASE privilege)
+      pool = mysql.createPool(this.buildPoolOptions(dbCfg, true));
+      try {
+        await pool.query('SELECT 1');
+      } catch (directErr) {
+        const errCode = (directErr as { code?: string })?.code;
+        await pool.end().catch(() => {});
+        pool = null;
+
+        if (errCode === 'ER_BAD_DB_ERROR') {
+          const bootstrapConn = await mysql.createConnection(this.buildPoolOptions(dbCfg, false));
+          try {
+            await bootstrapConn.query(
+              `CREATE DATABASE IF NOT EXISTS \`${safeDbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+            );
+          } finally {
+            await bootstrapConn.end().catch(() => {});
+          }
+          pool = mysql.createPool(this.buildPoolOptions(dbCfg, true));
+          await pool.query('SELECT 1');
+        } else {
+          throw directErr;
+        }
+      }
+
       await this.ensureMysqlSchema(pool);
       this.mysqlPool = pool;
       this.mysqlConnected = true;
       this.lastMysqlError = '';
     } catch (err) {
+      if (pool) {
+        await pool.end().catch(() => {});
+      }
       this.mysqlPool = null;
       this.mysqlConnected = false;
-      this.lastMysqlError = err instanceof Error ? err.message : 'MySQL connection failed';
+      this.lastMysqlError = this.formatMysqlError(err, 'MySQL connection failed');
     }
   }
 
-  private async ensureMysqlSchema(pool: Pool): Promise<void> {
+  private getMysqlSchemaSql(): string {
     const schemaPath = this.resolveFileInApp('server/schema.sql');
-    if (!schemaPath) return;
-    const sql = fs.readFileSync(schemaPath, 'utf-8');
-    const statements = sql
+    if (schemaPath) {
+      return fs.readFileSync(schemaPath, 'utf-8');
+    }
+    return `
+      CREATE TABLE IF NOT EXISTS albums (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        barcode VARCHAR(64) NOT NULL DEFAULT '',
+        catalog_number VARCHAR(64) NOT NULL DEFAULT '',
+        label VARCHAR(128) NOT NULL DEFAULT '',
+        phonographic_company VARCHAR(255) NOT NULL DEFAULT '',
+        format VARCHAR(64) NOT NULL DEFAULT 'CD',
+        album_artist VARCHAR(255) NOT NULL DEFAULT '',
+        featured_artists TEXT,
+        album_title VARCHAR(255) NOT NULL,
+        album_time VARCHAR(32) NOT NULL DEFAULT '00:00',
+        total_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+        release_date VARCHAR(64) NOT NULL DEFAULT '',
+        return_date VARCHAR(64) NOT NULL DEFAULT '',
+        album_music_category VARCHAR(128) NOT NULL DEFAULT '',
+        producer VARCHAR(255) NOT NULL DEFAULT '',
+        production_company VARCHAR(255) NOT NULL DEFAULT '',
+        print_design VARCHAR(255) NOT NULL DEFAULT '',
+        cd_digital_playlist_link TEXT,
+        physical_product_web_link TEXT,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        INDEX idx_albums_catalog (catalog_number),
+        INDEX idx_albums_barcode (barcode),
+        INDEX idx_albums_title (album_title),
+        INDEX idx_albums_category (album_music_category)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+      CREATE TABLE IF NOT EXISTS album_musicians (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        album_id INT UNSIGNED NOT NULL,
+        role VARCHAR(128) NOT NULL DEFAULT '',
+        name VARCHAR(255) NOT NULL DEFAULT '',
+        sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        INDEX idx_musicians_album (album_id),
+        CONSTRAINT fk_musicians_album
+          FOREIGN KEY (album_id) REFERENCES albums(id)
+          ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+      CREATE TABLE IF NOT EXISTS songs (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        album_id INT UNSIGNED NOT NULL,
+        track_no VARCHAR(16) NOT NULL DEFAULT '',
+        title_gr VARCHAR(255) NOT NULL DEFAULT '',
+        title_en VARCHAR(255) NOT NULL DEFAULT '',
+        duration_min SMALLINT UNSIGNED NULL,
+        duration_sec SMALLINT UNSIGNED NULL,
+        total_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+        full_track TINYINT(1) NULL DEFAULT NULL,
+        pot_pouri TINYINT(1) NULL DEFAULT NULL,
+        isrc_code VARCHAR(32) NOT NULL DEFAULT '',
+        iswc_code VARCHAR(32) NOT NULL DEFAULT '',
+        autodia_code VARCHAR(32) NOT NULL DEFAULT '',
+        composer_gr VARCHAR(255) NOT NULL DEFAULT '',
+        composer_en VARCHAR(255) NOT NULL DEFAULT '',
+        songwriter_gr VARCHAR(255) NOT NULL DEFAULT '',
+        songwriter_en VARCHAR(255) NOT NULL DEFAULT '',
+        digital_web_link TEXT,
+        singer_gr VARCHAR(255) NOT NULL DEFAULT '',
+        singer_en VARCHAR(255) NOT NULL DEFAULT '',
+        aepi_percent DECIMAL(8,4) NULL DEFAULT NULL,
+        final_aepi_percent DECIMAL(10,5) NULL DEFAULT NULL,
+        notes TEXT,
+        sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        INDEX idx_songs_album (album_id),
+        INDEX idx_songs_isrc (isrc_code),
+        INDEX idx_songs_iswc (iswc_code),
+        INDEX idx_songs_autodia (autodia_code),
+        INDEX idx_songs_title_gr (title_gr),
+        CONSTRAINT fk_songs_album
+          FOREIGN KEY (album_id) REFERENCES albums(id)
+          ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `;
+  }
+
+  public static splitSqlStatements(sql: string): string[] {
+    return sql
       .split(';')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith('--'));
-    for (const stmt of statements) {
+      .map((chunk) =>
+        chunk
+          .split(/\r?\n/)
+          .filter((line) => !line.trim().startsWith('--'))
+          .join('\n')
+          .trim()
+      )
+      .filter((stmt) => stmt.length > 0);
+  }
+
+  private async ensureMysqlSchema(pool: Pool): Promise<void> {
+    const sql = this.getMysqlSchemaSql();
+    const statements = CatalogDatabase.splitSqlStatements(sql);
+    if (statements.length === 0) return;
+
+    // Create `albums` table first
+    await pool.query(statements[0]);
+
+    // Check existing `albums.id` type & engine in case the table pre-existed with signed INT / BIGINT / MyISAM
+    let fkAlbumIdType = 'INT UNSIGNED';
+    try {
+      const [cols] = await pool.query<RowDataPacket[]>(
+        `SELECT c.COLUMN_TYPE AS columnType, t.ENGINE AS engine
+         FROM information_schema.TABLES t
+         JOIN information_schema.COLUMNS c
+           ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
+         WHERE t.TABLE_SCHEMA = DATABASE()
+           AND t.TABLE_NAME = 'albums'
+           AND c.COLUMN_NAME = 'id'
+         LIMIT 1`
+      );
+      if (cols.length > 0) {
+        const engine = String(cols[0].engine || '').toUpperCase();
+        if (engine && engine !== 'INNODB') {
+          await pool.query('ALTER TABLE albums ENGINE=InnoDB');
+        }
+        const colType = String(cols[0].columnType || '').toUpperCase();
+        if (colType.includes('BIGINT')) {
+          fkAlbumIdType = colType.includes('UNSIGNED') ? 'BIGINT UNSIGNED' : 'BIGINT';
+        } else if (colType.includes('INT')) {
+          fkAlbumIdType = colType.includes('UNSIGNED') ? 'INT UNSIGNED' : 'INT';
+        }
+      }
+    } catch {
+      // Fall back to default INT UNSIGNED if information_schema is restricted
+    }
+
+    for (let i = 1; i < statements.length; i++) {
+      let stmt = statements[i];
+      if (fkAlbumIdType !== 'INT UNSIGNED') {
+        stmt = stmt.replace(/album_id\s+INT\s+UNSIGNED\s+NOT\s+NULL/gi, `album_id ${fkAlbumIdType} NOT NULL`);
+      }
       await pool.query(stmt);
     }
   }
