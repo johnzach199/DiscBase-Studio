@@ -22,7 +22,7 @@ jobs:
           - os: macos-latest
             platform: mac
             artifact_name: macos-dmg
-            builder_args: --mac dmg
+            builder_args: --mac dir
           - os: windows-latest
             platform: windows
             artifact_name: windows-exe
@@ -53,7 +53,7 @@ jobs:
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             if (!pkg.name || pkg.name === "react-example") pkg.name = "discbase-studio";
             if (!pkg.version || pkg.version === "0.0.0") pkg.version = "1.0.0";
-            if (!pkg.description) pkg.description = "Album & Song Catalog Workstation with XLSX import/export and MySQL Server integration.";
+            if (!pkg.description) pkg.description = "Album & Song Catalog Workstation with XLSX import/export and SQLite + MySQL Server integration.";
             if (!pkg.author || (typeof pkg.author === "string" && !pkg.author.includes("@"))) {
               pkg.author = "DiscBase Studio <support@discbase.local>";
             }
@@ -88,12 +88,25 @@ jobs:
               extraMetadata: {
                 main: "electron/main.cjs"
               },
+              afterPack: "electron/afterPack.cjs",
               win: {
                 target: ["portable"]
               },
               mac: {
-                target: ["dmg"],
-                category: "public.app-category.music"
+                target: [
+                  {
+                    target: "dir",
+                    arch: ["universal"]
+                  }
+                ],
+                category: "public.app-category.music",
+                identity: null,
+                hardenedRuntime: false,
+                gatekeeperAssess: false
+              },
+              dmg: {
+                sign: false,
+                writeUpdateInfo: false
               },
               linux: {
                 target: ["AppImage"],
@@ -101,8 +114,8 @@ jobs:
                 maintainer: "DiscBase Studio <support@discbase.local>",
                 vendor: "DiscBase Studio",
                 category: "AudioVideo",
-                synopsis: "Album & Song Catalog Workstation for MySQL",
-                description: "Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation."
+                synopsis: "Album & Song Catalog Workstation for SQLite & MySQL",
+                description: "Spreadsheet-faithful catalog entry, XLSX batch import, and SQLite + MySQL Server workstation."
               }
             };
             fs.writeFileSync("electron-builder.ci.json", JSON.stringify(cfg, null, 2) + "\n");
@@ -120,6 +133,49 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           DEBUG: electron-builder
         run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.ci.json --publish never
+
+      - name: Sign & package verified universal macOS DMG
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="dist-electron/mac-universal/DiscBase Studio.app"
+          if [ ! -d "$APP_PATH" ]; then
+            APP_PATH=$(find dist-electron -maxdepth 2 -type d -name "*.app" ! -path "*-temp*" | head -n 1)
+          fi
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "Error: Could not find packaged .app bundle inside dist-electron"
+            exit 1
+          fi
+
+          VERSION=$(node -p "require('./package.json').version")
+          DMG_OUT="dist-electron/DiscBase-Studio-${VERSION}-universal.dmg"
+          DMG_STAGE="$(mktemp -d /tmp/discbase-dmg.XXXXXX)"
+          MOUNT_DIR="$(mktemp -d /tmp/discbase-mount.XXXXXX)"
+          trap 'hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true; rm -rf "$DMG_STAGE" "$MOUNT_DIR"' EXIT
+
+          echo "Clearing xattrs and applying deep ad-hoc signature to $APP_PATH"
+          xattr -cr "$APP_PATH"
+          codesign --force --deep --sign - --timestamp=none "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          ditto "$APP_PATH" "$DMG_STAGE/DiscBase Studio.app"
+          ln -s /Applications "$DMG_STAGE/Applications"
+
+          rm -f "$DMG_OUT"
+          hdiutil create \
+            -volname "DiscBase Studio" \
+            -srcfolder "$DMG_STAGE" \
+            -ov \
+            -format UDZO \
+            "$DMG_OUT"
+
+          echo "Verifying DMG integrity and mounted bundle signature..."
+          hdiutil verify "$DMG_OUT"
+          hdiutil attach "$DMG_OUT" -mountpoint "$MOUNT_DIR" -nobrowse -readonly
+          codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/DiscBase Studio.app"
+          hdiutil detach "$MOUNT_DIR"
+          ls -lh "$DMG_OUT"
 
       - name: Stage executable for release job
         uses: actions/upload-artifact@v4
@@ -154,6 +210,11 @@ jobs:
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
           name: DiscBase Studio ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
+          body: |
+            ### Downloads
+            - **Linux / Fedora**: `.AppImage` (`chmod +x *.AppImage` then launch)
+            - **macOS (Apple Silicon & Intel Universal)**: `.dmg` (Ad-hoc signed universal bundle. Drag **DiscBase Studio.app** to **Applications**. On macOS Sequoia/Sonoma without an Apple Developer ID, run `xattr -cr "/Applications/DiscBase Studio.app"` once in Terminal or click **Open Anyway** in **System Settings -> Privacy & Security**.)
+            - **Windows**: `.exe` standalone executable
           files: final-executables/*
           fail_on_unmatched_files: true
           make_latest: true
