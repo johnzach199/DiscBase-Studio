@@ -17,9 +17,9 @@
         try {
           var saved = localStorage.getItem('discbase-theme');
           var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          if (saved === 'dark' || (!saved && prefersDark)) {
-            document.documentElement.classList.add('dark');
-          }
+          var isDark = saved === 'dark' || (!saved && prefersDark);
+          document.documentElement.classList.toggle('dark', isDark);
+          document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
         } catch (e) {}
       })();
     </script>

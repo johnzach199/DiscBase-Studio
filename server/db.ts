@@ -5,7 +5,12 @@ import type { Pool, PoolOptions, RowDataPacket, ResultSetHeader } from 'mysql2/p
 import initSqlJs from 'sql.js';
 import type { Database as SqlJsDatabase, SqlJsStatic } from 'sql.js';
 import type { Album, AlbumSummary, DbStatus, Musician, MysqlConfig, Song, SqliteConfig } from '../src/types/catalog';
-import { computeAlbumStats, computeSongSeconds } from '../src/utils/catalogMath';
+import {
+  computeAlbumStats,
+  computeSongSeconds,
+  deduplicateAlbumBatch,
+  findDuplicateAlbum as findDuplicateInList,
+} from '../src/utils/catalogMath';
 import { getInitialSeedAlbums } from './seedData';
 
 interface LocalStore {
@@ -869,22 +874,49 @@ export class CatalogDatabase {
     }
 
     const existing = await this.listAlbums();
-    const existingKeys = new Set(
-      existing.map((a) => `${a.catalog_number.toLowerCase()}::${a.barcode.toLowerCase()}`)
-    );
+    const { unique, skipped: skippedItems } = deduplicateAlbumBatch(localAlbums, existing);
 
     let imported = 0;
-    let skipped = 0;
-    for (const album of localAlbums) {
-      const key = `${album.catalog_number.toLowerCase()}::${album.barcode.toLowerCase()}`;
-      if (existingKeys.has(key)) {
-        skipped += 1;
-        continue;
-      }
+    for (const album of unique) {
       await this.createAlbum(album);
       imported += 1;
     }
-    return { imported, skipped };
+    return { imported, skipped: skippedItems.length };
+  }
+
+  public async findDuplicateAlbum(candidate: Album, excludeId?: number): Promise<AlbumSummary | null> {
+    const existing = await this.listAlbums();
+    const filtered = excludeId ? existing.filter((a) => a.id !== excludeId) : existing;
+    return findDuplicateInList(candidate, filtered);
+  }
+
+  public async importAlbumsDeduplicated(albums: Album[]): Promise<{
+    imported: Album[];
+    skipped: Array<{
+      album_title: string;
+      catalog_number: string;
+      barcode: string;
+      reason: 'database' | 'batch';
+    }>;
+  }> {
+    const existing = await this.listAlbums();
+    const { unique, skipped } = deduplicateAlbumBatch(albums, existing);
+
+    const imported: Album[] = [];
+    for (const album of unique) {
+      const saved = await this.createAlbum(album);
+      imported.push(saved);
+    }
+
+    return {
+      imported,
+      skipped: skipped.map((s) => ({
+        album_title: s.item.album_title,
+        catalog_number: s.item.catalog_number,
+        barcode: s.item.barcode,
+        reason: s.reason,
+      })),
+    };
   }
 
   // ---------------- Legacy JSON Local Store Fallback ----------------

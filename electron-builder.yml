@@ -21,19 +21,31 @@ files:
   - package.json
 extraMetadata:
   main: electron/main.cjs
+afterPack: electron/afterPack.cjs
 win:
+  icon: build-resources/icon.ico
   target:
     - portable
 mac:
+  icon: build-resources/icon.png
   target:
-    - dmg
+    - target: dmg
+      arch:
+        - universal
   category: public.app-category.music
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+dmg:
+  sign: false
+  writeUpdateInfo: false
 linux:
+  icon: build-resources/icon.png
   target:
     - AppImage
   executableName: discbase-studio
   maintainer: DiscBase Studio <support@discbase.local>
   vendor: DiscBase Studio
   category: AudioVideo
-  synopsis: Album & Song Catalog Workstation for MySQL
-  description: Spreadsheet-faithful catalog entry, XLSX batch import, and MySQL Server workstation.
+  synopsis: Album & Song Catalog Workstation for SQLite & MySQL
+  description: Spreadsheet-faithful catalog entry, XLSX batch import, and SQLite + MySQL Server workstation.

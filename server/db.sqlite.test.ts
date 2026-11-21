@@ -90,3 +90,48 @@ test('CatalogDatabase.splitSqlStatements preserves CREATE TABLE albums despite l
   assert.match(statements[1], /^CREATE TABLE IF NOT EXISTS album_musicians\b/i);
   assert.match(statements[2], /^CREATE TABLE IF NOT EXISTS songs\b/i);
 });
+
+test('CatalogDatabase.importAlbumsDeduplicated skips database and in-batch duplicates', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discbase-dedup-test-'));
+  try {
+    const db = new CatalogDatabase(tmpDir);
+    await db.initialize();
+
+    const existingDup = createEmptyAlbum();
+    existingDup.catalog_number = 'gm-4314';
+    existingDup.barcode = '5205299033028';
+    existingDup.album_title = 'ζωντανα στα αραχωβιτικα';
+    existingDup.album_artist = 'ΔΙΑΦΟΡΟΙ';
+    existingDup.songs[0].title_gr = 'Ο ΛΙΟΥΛΙΟΣ';
+
+    const uniqueNew = createEmptyAlbum();
+    uniqueNew.catalog_number = 'GM 7777';
+    uniqueNew.barcode = '5205299077771';
+    uniqueNew.album_title = 'ΜΟΝΑΔΙΚΟΣ ΔΙΣΚΟΣ';
+    uniqueNew.album_artist = 'ΚΑΛΛΙΤΕΧΝΗΣ 7777';
+    uniqueNew.songs[0].title_gr = 'ΤΡΑΓΟΥΔΙ 7777';
+
+    const batchDup = createEmptyAlbum();
+    batchDup.catalog_number = 'GM7777';
+    batchDup.barcode = '5205299077771';
+    batchDup.album_title = 'μοναδικος δισκος';
+    batchDup.album_artist = 'ΚΑΛΛΙΤΕΧΝΗΣ 7777';
+    batchDup.songs[0].title_gr = 'ΤΡΑΓΟΥΔΙ 7777';
+
+    const res1 = await db.importAlbumsDeduplicated([existingDup, uniqueNew, batchDup]);
+    assert.equal(res1.imported.length, 1);
+    assert.equal(res1.imported[0].catalog_number, 'GM 7777');
+    assert.equal(res1.skipped.length, 2);
+    assert.equal(res1.skipped[0].reason, 'database');
+    assert.equal(res1.skipped[1].reason, 'batch');
+
+    const dupCheck = await db.findDuplicateAlbum(uniqueNew);
+    assert.ok(dupCheck);
+    assert.equal(dupCheck.catalog_number, 'GM 7777');
+
+    const status = await db.getDbStatus();
+    assert.equal(status.albumCount, 3);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

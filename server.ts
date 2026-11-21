@@ -36,7 +36,7 @@ export async function startAppServer(options?: {
   isProduction?: boolean;
 }) {
   const app = express();
-  app.use(express.json({ limit: '25mb' }));
+  app.use(express.json({ limit: '50mb' }));
 
   const db = new CatalogDatabase(options?.dataDir);
   await db.initialize();
@@ -196,6 +196,14 @@ export async function startAppServer(options?: {
         res.status(400).json({ error: validation.errors.join(' '), validation });
         return;
       }
+      const dup = await db.findDuplicateAlbum(payload);
+      if (dup) {
+        res.status(409).json({
+          error: `An identical album already exists in the catalog (${dup.catalog_number || dup.barcode} · ${dup.album_title}).`,
+          duplicate: dup,
+        });
+        return;
+      }
       const created = await db.createAlbum(payload);
       res.status(201).json({ album: created });
     } catch (err) {
@@ -214,6 +222,14 @@ export async function startAppServer(options?: {
       const validation = validateAlbum(payload);
       if (!validation.valid) {
         res.status(400).json({ error: validation.errors.join(' '), validation });
+        return;
+      }
+      const dup = await db.findDuplicateAlbum(payload, id);
+      if (dup) {
+        res.status(409).json({
+          error: `Another album in the catalog already uses this exact identity (${dup.catalog_number || dup.barcode} · ${dup.album_title}).`,
+          duplicate: dup,
+        });
         return;
       }
       const updated = await db.updateAlbum(id, payload);
@@ -248,32 +264,57 @@ export async function startAppServer(options?: {
   // XLSX / TSV / CSV Parse & Batch Import
   app.post('/api/import/parse', (req, res) => {
     try {
-      const { base64, text, filename } = req.body as { base64?: string; text?: string; filename?: string };
-      let albums: Album[] = [];
+      const parseSingleInput = (input: { base64?: string; text?: string; filename?: string }) => {
+        const fname = input.filename || 'upload.xlsx';
+        if (input.base64) {
+          const buffer = Buffer.from(input.base64, 'base64');
+          const wb = XLSX.read(buffer, { type: 'buffer' });
+          return wb.SheetNames.map((sheetName) => {
+            const sheet = wb.Sheets[sheetName];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false }) as unknown[][];
+            const parsed = parseSpreadsheetRows(rows);
+            if (!parsed.album_title && sheetName) {
+              parsed.album_title = sheetName;
+            }
+            return { album: parsed, sheetName, filename: fname };
+          }).filter((item) => item.album.songs.length > 0 || item.album.album_title);
+        }
+        if (input.text) {
+          const lines = input.text.split(/\r?\n/);
+          const delimiter = lines.some((l) => l.includes('\t')) ? '\t' : ',';
+          const rows = lines.map((line) => line.split(delimiter));
+          return [{ album: parseSpreadsheetRows(rows), sheetName: '', filename: fname }];
+        }
+        return [];
+      };
 
-      if (base64) {
-        const buffer = Buffer.from(base64, 'base64');
-        const wb = XLSX.read(buffer, { type: 'buffer' });
-        albums = wb.SheetNames.map((sheetName) => {
-          const sheet = wb.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false }) as unknown[][];
-          const parsed = parseSpreadsheetRows(rows);
-          if (!parsed.album_title && sheetName) {
-            parsed.album_title = sheetName;
-          }
-          return parsed;
-        }).filter((a) => a.songs.length > 0 || a.album_title);
-      } else if (text) {
-        const lines = text.split(/\r?\n/);
-        const delimiter = lines.some((l) => l.includes('\t')) ? '\t' : ',';
-        const rows = lines.map((line) => line.split(delimiter));
-        albums = [parseSpreadsheetRows(rows)];
-      } else {
+      const body = req.body as {
+        base64?: string;
+        text?: string;
+        filename?: string;
+        files?: Array<{ base64?: string; text?: string; filename?: string }>;
+      };
+
+      if (Array.isArray(body.files) && body.files.length > 0) {
+        const items = body.files.flatMap((fileInput) => parseSingleInput(fileInput));
+        res.json({
+          albums: items.map((i) => i.album),
+          items,
+        });
+        return;
+      }
+
+      if (!body.base64 && !body.text) {
         res.status(400).json({ error: 'Provide either base64 workbook data or delimited text.' });
         return;
       }
 
-      res.json({ filename: filename || 'upload.xlsx', albums });
+      const items = parseSingleInput(body);
+      res.json({
+        filename: body.filename || 'upload.xlsx',
+        albums: items.map((i) => i.album),
+        items,
+      });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to parse spreadsheet file' });
     }
@@ -287,7 +328,6 @@ export async function startAppServer(options?: {
         return;
       }
 
-      const created: Album[] = [];
       for (const album of albums) {
         const validation = validateAlbum(album);
         if (!validation.valid) {
@@ -296,11 +336,15 @@ export async function startAppServer(options?: {
           });
           return;
         }
-        const saved = await db.createAlbum(album);
-        created.push(saved);
       }
 
-      res.status(201).json({ importedCount: created.length, albums: created });
+      const result = await db.importAlbumsDeduplicated(albums);
+      res.status(result.imported.length > 0 ? 201 : 200).json({
+        importedCount: result.imported.length,
+        skippedCount: result.skipped.length,
+        skippedAlbums: result.skipped,
+        albums: result.imported,
+      });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Import failed' });
     }
@@ -366,7 +410,7 @@ export async function startAppServer(options?: {
         }
       }
 
-      const includeDirs = ['src', 'server', 'electron', '.github'];
+      const includeDirs = ['src', 'server', 'electron', 'build-resources', '.github'];
       const collectDir = (dirRel: string) => {
         const absDir = path.join(root, dirRel);
         if (!fs.existsSync(absDir)) return;

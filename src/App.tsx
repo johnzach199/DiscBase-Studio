@@ -28,9 +28,15 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
+
   const handleThemeChange = useCallback((nextTheme: ThemeMode) => {
     setTheme(nextTheme);
     document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+    document.documentElement.style.colorScheme = nextTheme;
     try {
       localStorage.setItem('discbase-theme', nextTheme);
     } catch {
@@ -211,6 +217,7 @@ export default function App() {
 
         {activeTab === 'import' && (
           <XlsxImporter
+            existingAlbums={albums}
             onImportComplete={handleImportComplete}
             onOpenInEditor={handleOpenParsedInEditor}
           />

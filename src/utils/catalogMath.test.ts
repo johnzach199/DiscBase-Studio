@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  areAlbumsIdentical,
   buildWorkbookMatrix,
   computeAlbumStats,
   computeSongSeconds,
   createEmptyAlbum,
   createEmptySong,
+  deduplicateAlbumBatch,
+  findDuplicateAlbum,
   formatSecondsAsTime,
   parseSpreadsheetRows,
   validateAlbum,
@@ -121,4 +124,75 @@ test('buildWorkbookMatrix round-trips through parseSpreadsheetRows cleanly', () 
   assert.equal(parsed.songs[0].title_gr, 'ΤΡΑΓΟΥΔΙ 1');
   assert.equal(parsed.songs[0].total_seconds, 195);
   assert.equal(parsed.musicians[0].role, 'Κλαρίνο');
+});
+
+test('areAlbumsIdentical, findDuplicateAlbum, and deduplicateAlbumBatch prevent identical releases', () => {
+  const dbAlbums = [
+    {
+      id: 1,
+      catalog_number: 'GM 4314',
+      barcode: '5205299033028',
+      album_title: 'ΖΩΝΤΑΝΑ ΣΤΑ ΑΡΑΧΩΒΙΤΙΚΑ',
+      album_artist: 'ΔΙΑΦΟΡΟΙ',
+    },
+  ];
+
+  // Identical barcode with whitespace/case differences matches DB
+  assert.equal(
+    areAlbumsIdentical(dbAlbums[0], {
+      catalog_number: 'gm-4314',
+      barcode: ' 5205299033028 ',
+      album_title: 'ζωντανα στα αραχωβιτικα',
+    }),
+    true
+  );
+
+  // Distinct release does NOT match
+  assert.equal(
+    areAlbumsIdentical(dbAlbums[0], {
+      catalog_number: 'GM 5001',
+      barcode: '5205299099999',
+      album_title: 'ΝΕΟΣ ΔΙΣΚΟΣ',
+      album_artist: 'ΝΕΟΣ ΚΑΛΛΙΤΕΧΝΗΣ',
+    }),
+    false
+  );
+
+  const batch = [
+    {
+      catalog_number: 'GM-4314',
+      barcode: '5205299033028',
+      album_title: 'ΖΩΝΤΑΝΑ ΣΤΑ ΑΡΑΧΩΒΙΤΙΚΑ',
+      album_artist: 'ΔΙΑΦΟΡΟΙ',
+    },
+    {
+      catalog_number: 'GM 5001',
+      barcode: '5205299050011',
+      album_title: 'ΔΙΣΚΟΣ Α',
+      album_artist: 'ΚΑΛΛΙΤΕΧΝΗΣ Α',
+    },
+    {
+      catalog_number: 'gm5001',
+      barcode: '5205299050011',
+      album_title: 'δισκος α',
+      album_artist: 'ΚΑΛΛΙΤΕΧΝΗΣ Α',
+    },
+    {
+      catalog_number: 'GM 5002',
+      barcode: '5205299050028',
+      album_title: 'ΔΙΣΚΟΣ Β',
+      album_artist: 'ΚΑΛΛΙΤΕΧΝΗΣ Β',
+    },
+  ];
+
+  assert.ok(findDuplicateAlbum(batch[0], dbAlbums));
+  assert.equal(findDuplicateAlbum(batch[1], dbAlbums), null);
+
+  const result = deduplicateAlbumBatch(batch, dbAlbums);
+  assert.equal(result.unique.length, 2);
+  assert.equal(result.unique[0].catalog_number, 'GM 5001');
+  assert.equal(result.unique[1].catalog_number, 'GM 5002');
+  assert.equal(result.skipped.length, 2);
+  assert.equal(result.skipped[0].reason, 'database');
+  assert.equal(result.skipped[1].reason, 'batch');
 });

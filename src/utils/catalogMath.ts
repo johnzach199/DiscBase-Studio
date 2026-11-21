@@ -146,6 +146,107 @@ export function validateAlbum(album: Album): ValidationResult {
   };
 }
 
+export interface AlbumIdentityLike {
+  id?: number;
+  barcode?: string | null;
+  catalog_number?: string | null;
+  album_title?: string | null;
+  album_artist?: string | null;
+}
+
+function normalizeMatchText(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeMatchCode(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase().replace(/[\s-]+/g, '');
+}
+
+export function areAlbumsIdentical(a: AlbumIdentityLike, b: AlbumIdentityLike): boolean {
+  const bcA = normalizeMatchCode(a.barcode);
+  const bcB = normalizeMatchCode(b.barcode);
+  const catA = normalizeMatchCode(a.catalog_number);
+  const catB = normalizeMatchCode(b.catalog_number);
+  const titleA = normalizeMatchText(a.album_title);
+  const titleB = normalizeMatchText(b.album_title);
+  const artistA = normalizeMatchText(a.album_artist);
+  const artistB = normalizeMatchText(b.album_artist);
+
+  // Same barcode (unless both catalog numbers exist and explicitly differ alongside different titles)
+  if (bcA && bcB && bcA === bcB) {
+    if (!catA || !catB || catA === catB || (titleA && titleA === titleB)) {
+      return true;
+    }
+  }
+
+  // Same catalog number + same title (and compatible barcode)
+  if (catA && catB && catA === catB && titleA && titleB && titleA === titleB) {
+    if (!bcA || !bcB || bcA === bcB) {
+      return true;
+    }
+  }
+
+  // Same catalog number + same artist when barcode is identical or empty on either
+  if (catA && catB && catA === catB && artistA && artistB && artistA === artistB) {
+    if ((!bcA || !bcB || bcA === bcB) && (!titleA || !titleB || titleA === titleB)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function findDuplicateAlbum<T extends AlbumIdentityLike>(
+  candidate: AlbumIdentityLike,
+  existing: T[]
+): T | null {
+  for (const item of existing) {
+    if (areAlbumsIdentical(candidate, item)) {
+      return item;
+    }
+  }
+  return null;
+}
+
+export interface BatchDeduplicationResult<T extends AlbumIdentityLike> {
+  unique: T[];
+  skipped: Array<{
+    item: T;
+    reason: 'database' | 'batch';
+    matchedAlbum?: AlbumIdentityLike;
+  }>;
+}
+
+export function deduplicateAlbumBatch<T extends AlbumIdentityLike>(
+  candidates: T[],
+  existingInDb: AlbumIdentityLike[]
+): BatchDeduplicationResult<T> {
+  const unique: T[] = [];
+  const skipped: Array<{
+    item: T;
+    reason: 'database' | 'batch';
+    matchedAlbum?: AlbumIdentityLike;
+  }> = [];
+
+  for (const candidate of candidates) {
+    const dbMatch = findDuplicateAlbum(candidate, existingInDb);
+    if (dbMatch) {
+      skipped.push({ item: candidate, reason: 'database', matchedAlbum: dbMatch });
+      continue;
+    }
+
+    const batchMatch = findDuplicateAlbum(candidate, unique);
+    if (batchMatch) {
+      skipped.push({ item: candidate, reason: 'batch', matchedAlbum: batchMatch });
+      continue;
+    }
+
+    unique.push(candidate);
+  }
+
+  return { unique, skipped };
+}
+
 function cleanStr(v: unknown): string {
   if (v === null || v === undefined) return '';
   return String(v).replace(/\u00a0/g, ' ').trim();
