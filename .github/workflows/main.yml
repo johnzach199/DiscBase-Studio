@@ -45,6 +45,28 @@ jobs:
       - name: Install Electron & Electron Builder (dev build tools)
         run: npm install --no-save --legacy-peer-deps electron@35 electron-builder@25
 
+      - name: Generate macOS ICNS icon from PNG
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          if [ -f "build-resources/icon.png" ] && [ ! -f "build-resources/icon.icns" ]; then
+            ICONSET_DIR="$(mktemp -d /tmp/discbase-icon.XXXXXX)/DiscBase.iconset"
+            mkdir -p "$ICONSET_DIR"
+            sips -z 16 16     build-resources/icon.png --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
+            sips -z 32 32     build-resources/icon.png --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
+            sips -z 32 32     build-resources/icon.png --out "$ICONSET_DIR/icon_32x32.png" >/dev/null
+            sips -z 64 64     build-resources/icon.png --out "$ICONSET_DIR/icon_32x32@2x.png" >/dev/null
+            sips -z 128 128   build-resources/icon.png --out "$ICONSET_DIR/icon_128x128.png" >/dev/null
+            sips -z 256 256   build-resources/icon.png --out "$ICONSET_DIR/icon_128x128@2x.png" >/dev/null
+            sips -z 256 256   build-resources/icon.png --out "$ICONSET_DIR/icon_256x256.png" >/dev/null
+            sips -z 512 512   build-resources/icon.png --out "$ICONSET_DIR/icon_256x256@2x.png" >/dev/null
+            sips -z 512 512   build-resources/icon.png --out "$ICONSET_DIR/icon_512x512.png" >/dev/null
+            sips -z 1024 1024 build-resources/icon.png --out "$ICONSET_DIR/icon_512x512@2x.png" >/dev/null
+            iconutil -c icns "$ICONSET_DIR" -o build-resources/icon.icns
+            rm -rf "$(dirname "$ICONSET_DIR")"
+            ls -lh build-resources/icon.icns
+          fi
+
       - name: Ensure packaging metadata & electron-builder config
         shell: bash
         run: |
@@ -52,12 +74,22 @@ jobs:
             const fs = require("fs");
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             if (!pkg.name || pkg.name === "react-example") pkg.name = "discbase-studio";
-            if (!pkg.version || pkg.version === "0.0.0") pkg.version = "1.0.0";
+            if (!pkg.version || pkg.version === "0.0.0" || pkg.version === "1.0.0") pkg.version = "2.0.0";
             if (!pkg.description) pkg.description = "Album & Song Catalog Workstation with XLSX import/export and SQLite + MySQL Server integration.";
             if (!pkg.author || (typeof pkg.author === "string" && !pkg.author.includes("@"))) {
               pkg.author = "DiscBase Studio <support@discbase.local>";
             }
             fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+
+            const winIcon = fs.existsSync("build-resources/icon.ico")
+              ? "build-resources/icon.ico"
+              : (fs.existsSync("build-resources/icon.png") ? "build-resources/icon.png" : undefined);
+            const macIcon = fs.existsSync("build-resources/icon.icns")
+              ? "build-resources/icon.icns"
+              : (fs.existsSync("build-resources/icon.png") ? "build-resources/icon.png" : undefined);
+            const linuxIcon = fs.existsSync("build-resources/icon.png")
+              ? "build-resources/icon.png"
+              : undefined;
 
             const isLinux = "${{ matrix.platform }}" === "linux";
             const cfg = {
@@ -89,9 +121,11 @@ jobs:
                 main: "electron/main.cjs"
               },
               win: {
+                ...(winIcon ? { icon: winIcon } : {}),
                 target: ["portable"]
               },
               mac: {
+                ...(macIcon ? { icon: macIcon } : {}),
                 target: [
                   {
                     target: "dir",
@@ -108,6 +142,7 @@ jobs:
                 writeUpdateInfo: false
               },
               linux: {
+                ...(linuxIcon ? { icon: linuxIcon } : {}),
                 target: ["AppImage"],
                 executableName: "discbase-studio",
                 maintainer: "DiscBase Studio <support@discbase.local>",
@@ -207,8 +242,8 @@ jobs:
       - name: Upload executables directly to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
-          name: DiscBase Studio ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v2.0.{0}', github.run_number) }}
+          name: DiscBase Studio ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v2.0.{0}', github.run_number) }}
           body: |
             ### Downloads
             - **Linux / Fedora**: `.AppImage` (`chmod +x *.AppImage` then launch)
