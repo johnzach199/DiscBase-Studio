@@ -269,15 +269,20 @@ export async function startAppServer(options?: {
         if (input.base64) {
           const buffer = Buffer.from(input.base64, 'base64');
           const wb = XLSX.read(buffer, { type: 'buffer' });
-          return wb.SheetNames.map((sheetName) => {
-            const sheet = wb.Sheets[sheetName];
-            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false }) as unknown[][];
+          const results: Array<{ album: Album; sheetName: string; filename: string }> = [];
+          for (const sheetName of wb.SheetNames || []) {
+            const sheet = wb.Sheets?.[sheetName];
+            if (!sheet || !sheet['!ref']) continue;
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }) as unknown[][];
             const parsed = parseSpreadsheetRows(rows);
             if (!parsed.album_title && sheetName) {
               parsed.album_title = sheetName;
             }
-            return { album: parsed, sheetName, filename: fname };
-          }).filter((item) => item.album.songs.length > 0 || item.album.album_title);
+            if (parsed.songs.length > 0 || parsed.album_title || parsed.catalog_number) {
+              results.push({ album: parsed, sheetName, filename: fname });
+            }
+          }
+          return results;
         }
         if (input.text) {
           const lines = input.text.split(/\r?\n/);
@@ -339,10 +344,21 @@ export async function startAppServer(options?: {
       }
 
       const result = await db.importAlbumsDeduplicated(albums);
+      if (result.imported.length === 0 && result.failed.length > 0) {
+        res.status(500).json({
+          error: result.failed[0].error || 'Failed to save imported albums',
+          failedCount: result.failed.length,
+          failedAlbums: result.failed,
+        });
+        return;
+      }
+
       res.status(result.imported.length > 0 ? 201 : 200).json({
         importedCount: result.imported.length,
         skippedCount: result.skipped.length,
+        failedCount: result.failed.length,
         skippedAlbums: result.skipped,
+        failedAlbums: result.failed,
         albums: result.imported,
       });
     } catch (err) {

@@ -316,30 +316,64 @@ export const XlsxImporter: React.FC<XlsxImporterProps> = ({
     setSuccessMsg(null);
     setCommitting(true);
     try {
-      const res = await fetch('/api/import/commit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ albums: readyEntries.map((x) => x.item.album) }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to save imported albums');
+      const CHUNK_SIZE = 40;
+      let importedCount = 0;
+      let serverSkippedCount = 0;
+      const allFailed: Array<{ catalog_number?: string; album_title?: string; error?: string }> = [];
+
+      for (let i = 0; i < readyEntries.length; i += CHUNK_SIZE) {
+        const chunk = readyEntries.slice(i, i + CHUNK_SIZE);
+        setParseProgress(
+          `Importing ${Math.min(i + chunk.length, readyEntries.length)} of ${readyEntries.length} albums...`
+        );
+        const res = await fetch('/api/import/commit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ albums: chunk.map((x) => x.item.album) }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to save imported albums');
+        }
+        importedCount += data.importedCount ?? 0;
+        serverSkippedCount += data.skippedCount ?? 0;
+        if (Array.isArray(data.failedAlbums)) {
+          allFailed.push(...data.failedAlbums);
+        }
       }
 
-      const importedCount: number = data.importedCount ?? 0;
-      const serverSkippedCount: number = data.skippedCount ?? 0;
       const totalSkipped = summaryCounts.duplicatesTotal + serverSkippedCount;
+      const failedKeys = new Set(
+        allFailed.map(
+          (f) =>
+            `${(f.catalog_number || '').trim().toLowerCase()}|${(f.album_title || '').trim().toLowerCase()}`
+        )
+      );
 
-      const invalidRemaining = analyzedQueue
-        .filter((x) => x.status === 'invalid')
+      const remaining = analyzedQueue
+        .filter((x) => {
+          if (x.status === 'invalid') return true;
+          if (x.status === 'ready') {
+            const key = `${(x.item.album.catalog_number || '').trim().toLowerCase()}|${(x.item.album.album_title || '').trim().toLowerCase()}`;
+            return failedKeys.has(key);
+          }
+          return false;
+        })
         .map((x) => x.item);
-      setQueuedItems(invalidRemaining);
+      setQueuedItems(remaining);
+
+      if (allFailed.length > 0) {
+        const firstErr = allFailed[0];
+        setError(
+          `${allFailed.length} album(s) failed to save (e.g. "${firstErr?.album_title || 'Untitled'}": ${firstErr?.error || 'database error'}).`
+        );
+      }
 
       if (totalSkipped > 0) {
         setSuccessMsg(
           `Imported ${importedCount} new album(s) into the database. Skipped ${totalSkipped} duplicate album(s).`
         );
-      } else {
+      } else if (importedCount > 0) {
         setSuccessMsg(`Successfully imported ${importedCount} album(s) into the database.`);
       }
 
@@ -348,6 +382,7 @@ export const XlsxImporter: React.FC<XlsxImporterProps> = ({
       setError(err instanceof Error ? err.message : 'Database import failed');
     } finally {
       setCommitting(false);
+      setParseProgress('');
     }
   };
 

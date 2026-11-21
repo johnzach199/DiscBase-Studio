@@ -124,6 +124,7 @@ test('CatalogDatabase.importAlbumsDeduplicated skips database and in-batch dupli
     assert.equal(res1.skipped.length, 2);
     assert.equal(res1.skipped[0].reason, 'database');
     assert.equal(res1.skipped[1].reason, 'batch');
+    assert.equal(res1.failed.length, 0);
 
     const dupCheck = await db.findDuplicateAlbum(uniqueNew);
     assert.ok(dupCheck);

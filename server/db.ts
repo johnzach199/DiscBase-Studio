@@ -665,22 +665,22 @@ export class CatalogDatabase {
     return `
       CREATE TABLE IF NOT EXISTS albums (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        barcode VARCHAR(64) NOT NULL DEFAULT '',
-        catalog_number VARCHAR(64) NOT NULL DEFAULT '',
-        label VARCHAR(128) NOT NULL DEFAULT '',
-        phonographic_company VARCHAR(255) NOT NULL DEFAULT '',
-        format VARCHAR(64) NOT NULL DEFAULT 'CD',
-        album_artist VARCHAR(255) NOT NULL DEFAULT '',
+        barcode VARCHAR(191) NOT NULL DEFAULT '',
+        catalog_number VARCHAR(191) NOT NULL DEFAULT '',
+        label VARCHAR(191) NOT NULL DEFAULT '',
+        phonographic_company VARCHAR(512) NOT NULL DEFAULT '',
+        format VARCHAR(128) NOT NULL DEFAULT 'CD',
+        album_artist VARCHAR(512) NOT NULL DEFAULT '',
         featured_artists TEXT,
-        album_title VARCHAR(255) NOT NULL,
-        album_time VARCHAR(32) NOT NULL DEFAULT '00:00',
+        album_title VARCHAR(512) NOT NULL,
+        album_time VARCHAR(64) NOT NULL DEFAULT '00:00',
         total_seconds INT UNSIGNED NOT NULL DEFAULT 0,
-        release_date VARCHAR(64) NOT NULL DEFAULT '',
-        return_date VARCHAR(64) NOT NULL DEFAULT '',
-        album_music_category VARCHAR(128) NOT NULL DEFAULT '',
-        producer VARCHAR(255) NOT NULL DEFAULT '',
-        production_company VARCHAR(255) NOT NULL DEFAULT '',
-        print_design VARCHAR(255) NOT NULL DEFAULT '',
+        release_date VARCHAR(191) NOT NULL DEFAULT '',
+        return_date VARCHAR(191) NOT NULL DEFAULT '',
+        album_music_category VARCHAR(191) NOT NULL DEFAULT '',
+        producer VARCHAR(512) NOT NULL DEFAULT '',
+        production_company VARCHAR(512) NOT NULL DEFAULT '',
+        print_design VARCHAR(512) NOT NULL DEFAULT '',
         cd_digital_playlist_link TEXT,
         physical_product_web_link TEXT,
         notes TEXT,
@@ -689,15 +689,15 @@ export class CatalogDatabase {
         PRIMARY KEY (id),
         INDEX idx_albums_catalog (catalog_number),
         INDEX idx_albums_barcode (barcode),
-        INDEX idx_albums_title (album_title),
+        INDEX idx_albums_title (album_title(191)),
         INDEX idx_albums_category (album_music_category)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
       CREATE TABLE IF NOT EXISTS album_musicians (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         album_id INT UNSIGNED NOT NULL,
-        role VARCHAR(128) NOT NULL DEFAULT '',
-        name VARCHAR(255) NOT NULL DEFAULT '',
+        role VARCHAR(191) NOT NULL DEFAULT '',
+        name VARCHAR(512) NOT NULL DEFAULT '',
         sort_order INT UNSIGNED NOT NULL DEFAULT 0,
         PRIMARY KEY (id),
         INDEX idx_musicians_album (album_id),
@@ -709,24 +709,24 @@ export class CatalogDatabase {
       CREATE TABLE IF NOT EXISTS songs (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         album_id INT UNSIGNED NOT NULL,
-        track_no VARCHAR(16) NOT NULL DEFAULT '',
-        title_gr VARCHAR(255) NOT NULL DEFAULT '',
-        title_en VARCHAR(255) NOT NULL DEFAULT '',
+        track_no VARCHAR(64) NOT NULL DEFAULT '',
+        title_gr VARCHAR(512) NOT NULL DEFAULT '',
+        title_en VARCHAR(512) NOT NULL DEFAULT '',
         duration_min SMALLINT UNSIGNED NULL,
         duration_sec SMALLINT UNSIGNED NULL,
         total_seconds INT UNSIGNED NOT NULL DEFAULT 0,
         full_track TINYINT(1) NULL DEFAULT NULL,
         pot_pouri TINYINT(1) NULL DEFAULT NULL,
-        isrc_code VARCHAR(32) NOT NULL DEFAULT '',
-        iswc_code VARCHAR(32) NOT NULL DEFAULT '',
-        autodia_code VARCHAR(32) NOT NULL DEFAULT '',
-        composer_gr VARCHAR(255) NOT NULL DEFAULT '',
-        composer_en VARCHAR(255) NOT NULL DEFAULT '',
-        songwriter_gr VARCHAR(255) NOT NULL DEFAULT '',
-        songwriter_en VARCHAR(255) NOT NULL DEFAULT '',
+        isrc_code VARCHAR(128) NOT NULL DEFAULT '',
+        iswc_code VARCHAR(128) NOT NULL DEFAULT '',
+        autodia_code VARCHAR(128) NOT NULL DEFAULT '',
+        composer_gr VARCHAR(512) NOT NULL DEFAULT '',
+        composer_en VARCHAR(512) NOT NULL DEFAULT '',
+        songwriter_gr VARCHAR(512) NOT NULL DEFAULT '',
+        songwriter_en VARCHAR(512) NOT NULL DEFAULT '',
         digital_web_link TEXT,
-        singer_gr VARCHAR(255) NOT NULL DEFAULT '',
-        singer_en VARCHAR(255) NOT NULL DEFAULT '',
+        singer_gr VARCHAR(512) NOT NULL DEFAULT '',
+        singer_en VARCHAR(512) NOT NULL DEFAULT '',
         aepi_percent DECIMAL(8,4) NULL DEFAULT NULL,
         final_aepi_percent DECIMAL(10,5) NULL DEFAULT NULL,
         notes TEXT,
@@ -736,7 +736,7 @@ export class CatalogDatabase {
         INDEX idx_songs_isrc (isrc_code),
         INDEX idx_songs_iswc (iswc_code),
         INDEX idx_songs_autodia (autodia_code),
-        INDEX idx_songs_title_gr (title_gr),
+        INDEX idx_songs_title_gr (title_gr(191)),
         CONSTRAINT fk_songs_album
           FOREIGN KEY (album_id) REFERENCES albums(id)
           ON DELETE CASCADE
@@ -800,6 +800,58 @@ export class CatalogDatabase {
         stmt = stmt.replace(/album_id\s+INT\s+UNSIGNED\s+NOT\s+NULL/gi, `album_id ${fkAlbumIdType} NOT NULL`);
       }
       await pool.query(stmt);
+    }
+
+    // Auto-widen legacy narrow VARCHAR columns on pre-existing databases (safe, non-destructive)
+    try {
+      const [existingCols] = await pool.query<RowDataPacket[]>(
+        `SELECT TABLE_NAME AS tbl, COLUMN_NAME AS col, CHARACTER_MAXIMUM_LENGTH AS maxLen
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME IN ('albums', 'album_musicians', 'songs')`
+      );
+      const colLen = new Map<string, number>();
+      for (const row of existingCols) {
+        colLen.set(`${row.tbl}.${row.col}`, Number(row.maxLen || 0));
+      }
+
+      const widenSpecs: Array<{ tbl: string; col: string; minLen: number; sql: string }> = [
+        { tbl: 'albums', col: 'barcode', minLen: 191, sql: "ALTER TABLE albums MODIFY COLUMN barcode VARCHAR(191) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'catalog_number', minLen: 191, sql: "ALTER TABLE albums MODIFY COLUMN catalog_number VARCHAR(191) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'label', minLen: 191, sql: "ALTER TABLE albums MODIFY COLUMN label VARCHAR(191) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'phonographic_company', minLen: 512, sql: "ALTER TABLE albums MODIFY COLUMN phonographic_company VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'format', minLen: 128, sql: "ALTER TABLE albums MODIFY COLUMN format VARCHAR(128) NOT NULL DEFAULT 'CD'" },
+        { tbl: 'albums', col: 'album_artist', minLen: 512, sql: "ALTER TABLE albums MODIFY COLUMN album_artist VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'album_time', minLen: 64, sql: "ALTER TABLE albums MODIFY COLUMN album_time VARCHAR(64) NOT NULL DEFAULT '00:00'" },
+        { tbl: 'albums', col: 'release_date', minLen: 191, sql: "ALTER TABLE albums MODIFY COLUMN release_date VARCHAR(191) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'return_date', minLen: 191, sql: "ALTER TABLE albums MODIFY COLUMN return_date VARCHAR(191) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'album_music_category', minLen: 191, sql: "ALTER TABLE albums MODIFY COLUMN album_music_category VARCHAR(191) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'producer', minLen: 512, sql: "ALTER TABLE albums MODIFY COLUMN producer VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'production_company', minLen: 512, sql: "ALTER TABLE albums MODIFY COLUMN production_company VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'albums', col: 'print_design', minLen: 512, sql: "ALTER TABLE albums MODIFY COLUMN print_design VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'album_musicians', col: 'role', minLen: 191, sql: "ALTER TABLE album_musicians MODIFY COLUMN role VARCHAR(191) NOT NULL DEFAULT ''" },
+        { tbl: 'album_musicians', col: 'name', minLen: 512, sql: "ALTER TABLE album_musicians MODIFY COLUMN name VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'track_no', minLen: 64, sql: "ALTER TABLE songs MODIFY COLUMN track_no VARCHAR(64) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'title_en', minLen: 512, sql: "ALTER TABLE songs MODIFY COLUMN title_en VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'isrc_code', minLen: 128, sql: "ALTER TABLE songs MODIFY COLUMN isrc_code VARCHAR(128) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'iswc_code', minLen: 128, sql: "ALTER TABLE songs MODIFY COLUMN iswc_code VARCHAR(128) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'autodia_code', minLen: 128, sql: "ALTER TABLE songs MODIFY COLUMN autodia_code VARCHAR(128) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'composer_gr', minLen: 512, sql: "ALTER TABLE songs MODIFY COLUMN composer_gr VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'composer_en', minLen: 512, sql: "ALTER TABLE songs MODIFY COLUMN composer_en VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'songwriter_gr', minLen: 512, sql: "ALTER TABLE songs MODIFY COLUMN songwriter_gr VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'songwriter_en', minLen: 512, sql: "ALTER TABLE songs MODIFY COLUMN songwriter_en VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'singer_gr', minLen: 512, sql: "ALTER TABLE songs MODIFY COLUMN singer_gr VARCHAR(512) NOT NULL DEFAULT ''" },
+        { tbl: 'songs', col: 'singer_en', minLen: 512, sql: "ALTER TABLE songs MODIFY COLUMN singer_en VARCHAR(512) NOT NULL DEFAULT ''" },
+      ];
+
+      for (const spec of widenSpecs) {
+        const cur = colLen.get(`${spec.tbl}.${spec.col}`);
+        if (cur && cur < spec.minLen) {
+          await pool.query(spec.sql).catch(() => {});
+        }
+      }
+    } catch {
+      // Non-fatal if user lacks ALTER privileges
     }
   }
 
@@ -898,14 +950,50 @@ export class CatalogDatabase {
       barcode: string;
       reason: 'database' | 'batch';
     }>;
+    failed: Array<{
+      album_title: string;
+      catalog_number: string;
+      error: string;
+    }>;
   }> {
     const existing = await this.listAlbums();
     const { unique, skipped } = deduplicateAlbumBatch(albums, existing);
 
     const imported: Album[] = [];
-    for (const album of unique) {
-      const saved = await this.createAlbum(album);
-      imported.push(saved);
+    const failed: Array<{ album_title: string; catalog_number: string; error: string }> = [];
+
+    // Fast path for SQLite: insert all unique albums and persist disk buffer once at the end
+    if (!this.mysqlConnected && this.sqliteDb) {
+      for (const album of unique) {
+        try {
+          const clean = this.normalizeAlbumPayload(album);
+          const albumId = this.insertAlbumIntoSqlite(clean);
+          const created = this.getAlbumFromSqlite(albumId);
+          if (created) imported.push(created);
+        } catch (err) {
+          failed.push({
+            album_title: album.album_title || 'Untitled',
+            catalog_number: album.catalog_number || '',
+            error: err instanceof Error ? err.message : 'Failed to import album',
+          });
+        }
+      }
+      if (imported.length > 0) {
+        this.persistSqlite();
+      }
+    } else {
+      for (const album of unique) {
+        try {
+          const saved = await this.createAlbum(album);
+          imported.push(saved);
+        } catch (err) {
+          failed.push({
+            album_title: album.album_title || 'Untitled',
+            catalog_number: album.catalog_number || '',
+            error: err instanceof Error ? err.message : 'Failed to import album',
+          });
+        }
+      }
     }
 
     return {
@@ -916,6 +1004,7 @@ export class CatalogDatabase {
         barcode: s.item.barcode,
         reason: s.reason,
       })),
+      failed,
     };
   }
 
@@ -953,40 +1042,45 @@ export class CatalogDatabase {
   }
 
   private normalizeAlbumPayload(input: Album): Album {
+    const clampField = (v: unknown, maxLen: number): string => {
+      const str = String(v ?? '').trim();
+      return str.length > maxLen ? str.slice(0, maxLen) : str;
+    };
+
     const songs: Song[] = (input.songs || []).map((s, idx) => {
       const total_seconds = computeSongSeconds(s.duration_min, s.duration_sec);
       return {
         ...s,
-        track_no: s.track_no ?? '',
-        title_gr: s.title_gr ?? '',
-        title_en: s.title_en ?? '',
+        track_no: clampField(s.track_no, 64),
+        title_gr: clampField(s.title_gr, 255),
+        title_en: clampField(s.title_en, 255),
         duration_min: s.duration_min ?? null,
         duration_sec: s.duration_sec ?? null,
         total_seconds,
         full_track: Boolean(s.full_track),
         pot_pouri: Boolean(s.pot_pouri),
-        isrc_code: s.isrc_code ?? '',
-        iswc_code: s.iswc_code ?? '',
-        autodia_code: s.autodia_code ?? '',
-        composer_gr: s.composer_gr ?? '',
-        composer_en: s.composer_en ?? '',
-        songwriter_gr: s.songwriter_gr ?? '',
-        songwriter_en: s.songwriter_en ?? '',
-        digital_web_link: s.digital_web_link ?? '',
-        singer_gr: s.singer_gr ?? '',
-        singer_en: s.singer_en ?? '',
+        isrc_code: clampField(s.isrc_code, 128),
+        iswc_code: clampField(s.iswc_code, 128),
+        autodia_code: clampField(s.autodia_code, 128),
+        composer_gr: clampField(s.composer_gr, 255),
+        composer_en: clampField(s.composer_en, 255),
+        songwriter_gr: clampField(s.songwriter_gr, 255),
+        songwriter_en: clampField(s.songwriter_en, 255),
+        digital_web_link: String(s.digital_web_link ?? '').trim(),
+        singer_gr: clampField(s.singer_gr, 255),
+        singer_en: clampField(s.singer_en, 255),
         aepi_percent: s.aepi_percent ?? null,
         final_aepi_percent: s.final_aepi_percent ?? null,
-        notes: s.notes ?? '',
+        notes: String(s.notes ?? '').trim(),
         sort_order: idx,
       };
     });
 
     const musicians: Musician[] = (input.musicians || [])
-      .filter((m) => m.role.trim() || m.name.trim())
+      .filter((m) => String(m.role || '').trim() || String(m.name || '').trim())
       .map((m, idx) => ({
-        role: m.role.trim(),
-        name: m.name.trim(),
+        role: clampField(m.role, 128),
+        name: clampField(m.name, 255),
         sort_order: idx,
       }));
 
@@ -994,28 +1088,30 @@ export class CatalogDatabase {
 
     return {
       ...input,
-      barcode: (input.barcode || '').trim(),
-      catalog_number: (input.catalog_number || '').trim(),
-      label: (input.label || '').trim(),
-      phonographic_company: (input.phonographic_company || '').trim(),
-      format: (input.format || 'CD').trim(),
-      album_artist: (input.album_artist || '').trim(),
-      featured_artists: (input.featured_artists || '').trim(),
-      album_title: (input.album_title || '').trim(),
-      album_time:
+      barcode: clampField(input.barcode, 64),
+      catalog_number: clampField(input.catalog_number, 64),
+      label: clampField(input.label, 128),
+      phonographic_company: clampField(input.phonographic_company, 255),
+      format: clampField(input.format || 'CD', 64) || 'CD',
+      album_artist: clampField(input.album_artist, 255),
+      featured_artists: String(input.featured_artists || '').trim(),
+      album_title: clampField(input.album_title, 255),
+      album_time: clampField(
         !input.album_time?.trim() || (input.album_time.trim() === '00:00' && stats.totalSeconds > 0)
           ? stats.formattedTime
           : input.album_time.trim(),
+        32
+      ),
       total_seconds: stats.totalSeconds,
-      release_date: (input.release_date || '').trim(),
-      return_date: (input.return_date || '').trim(),
-      album_music_category: (input.album_music_category || '').trim(),
-      producer: (input.producer || '').trim(),
-      production_company: (input.production_company || '').trim(),
-      print_design: (input.print_design || '').trim(),
-      cd_digital_playlist_link: (input.cd_digital_playlist_link || '').trim(),
-      physical_product_web_link: (input.physical_product_web_link || '').trim(),
-      notes: (input.notes || '').trim(),
+      release_date: clampField(input.release_date, 64),
+      return_date: clampField(input.return_date, 64),
+      album_music_category: clampField(input.album_music_category, 128),
+      producer: clampField(input.producer, 255),
+      production_company: clampField(input.production_company, 255),
+      print_design: clampField(input.print_design, 255),
+      cd_digital_playlist_link: String(input.cd_digital_playlist_link || '').trim(),
+      physical_product_web_link: String(input.physical_product_web_link || '').trim(),
+      notes: String(input.notes || '').trim(),
       musicians,
       songs,
     };

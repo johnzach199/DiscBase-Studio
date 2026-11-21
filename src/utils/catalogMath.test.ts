@@ -196,3 +196,34 @@ test('areAlbumsIdentical, findDuplicateAlbum, and deduplicateAlbumBatch prevent 
   assert.equal(result.skipped[0].reason, 'database');
   assert.equal(result.skipped[1].reason, 'batch');
 });
+
+test('parseSpreadsheetRows handles sparse rows with empty holes and prevents catalog_number spillover', () => {
+  // Simulate SheetJS row arrays with empty holes (`new Array(...)` sparse slots)
+  const sparseHeader: unknown[] = [];
+  sparseHeader[2] = 'A/A';
+  sparseHeader[3] = 'ΤΙΤΛΟΣ ΤΡΑΓΟΥΔΙΟΥ';
+  sparseHeader[5] = 'min';
+  sparseHeader[6] = 'sec';
+  sparseHeader[8] = 'ΚΩΔ. ISRC';
+
+  const sparseSong: unknown[] = [];
+  sparseSong[2] = '1';
+  sparseSong[3] = 'ΤΡΑΓΟΥΔΙ ΣΕ SPARSE ROW';
+  sparseSong[5] = '3';
+  sparseSong[6] = '25';
+  sparseSong[8] = 'GRGM12600952';
+
+  const metaRow: unknown[] = [];
+  metaRow[0] = 'ΑΡ. ΚΑΤΑΛΟΓΟΥ : 952';
+  metaRow[3] = 'ΠΟΛΥ ΜΕΓΑΛΗ ΣΗΜΕΙΩΣΗ ΠΟΥ ΔΕΝ ΠΡΕΠΕΙ ΝΑ ΜΠΕΙ ΣΤΟΝ ΑΡΙΘΜΟ ΚΑΤΑΛΟΓΟΥ '.repeat(3);
+
+  const titleRow: unknown[] = [];
+  titleRow[1] = 'ΓΕΝΙΚΟΣ ΤΙΤΛΟΣ : ΔΙΣΚΟΣ 952';
+
+  const parsed = parseSpreadsheetRows([metaRow, titleRow, sparseHeader, sparseSong]);
+  assert.equal(parsed.catalog_number, '952');
+  assert.equal(parsed.album_title, 'ΔΙΣΚΟΣ 952');
+  assert.equal(parsed.songs.length, 1);
+  assert.equal(parsed.songs[0].title_gr, 'ΤΡΑΓΟΥΔΙ ΣΕ SPARSE ROW');
+  assert.equal(parsed.songs[0].total_seconds, 205);
+});

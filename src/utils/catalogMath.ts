@@ -298,8 +298,8 @@ function extractLabeledTokens(text: string, labels: Array<{ key: string; pattern
   return out;
 }
 
-function normalizeHeader(h: string): string {
-  return h
+function normalizeHeader(h: unknown): string {
+  return String(h ?? '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -334,11 +334,11 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     return createEmptyAlbum();
   }
 
-  // Locate the song table header row
+  // Locate the song table header row (Array.from eliminates sparse empty slots)
   let headerRowIdx = -1;
   for (let r = 0; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const normalizedCells = row.map((c) => normalizeHeader(cleanStr(c)));
+    const row = Array.isArray(rows[r]) ? rows[r] : [];
+    const normalizedCells = Array.from(row, (c) => normalizeHeader(cleanStr(c)));
     const hasTitle = normalizedCells.some(
       (c) => c.includes('τιτλος τραγουδιου') || c === 'title gr' || c === 'title_gr'
     );
@@ -356,18 +356,24 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
   const extraArtistLines: string[] = [];
 
   for (let r = 0; r < metaEnd; r++) {
-    const row = rows[r] || [];
-    const nonEmptyCells = row.map(cleanStr).filter(Boolean);
+    const row = Array.isArray(rows[r]) ? rows[r] : [];
+    const denseCells = Array.from(row, cleanStr);
+    const nonEmptyCells = denseCells.filter(Boolean);
     if (nonEmptyCells.length === 0) continue;
 
-    // Join cells with double-space so regex token extraction handles both merged single-cell and split-cell Excel layouts
-    const joined = nonEmptyCells.join('   ');
-    const extracted = extractLabeledTokens(joined, HEADER_LABELS);
+    // Extract per-cell labeled tokens first so trailing unlabelled cells in later columns don't bleed into catalog_number
+    const extracted: Record<string, string> = {};
+    for (const cellText of nonEmptyCells) {
+      const cellTokens = extractLabeledTokens(cellText, HEADER_LABELS);
+      for (const [k, v] of Object.entries(cellTokens)) {
+        if (!extracted[k]) extracted[k] = v;
+      }
+    }
 
-    // Also handle adjacent cell pairs like ["Barcode", "5205299033028"]
-    for (let c = 0; c < row.length - 1; c++) {
-      const k = cleanStr(row[c]);
-      const v = cleanStr(row[c + 1]);
+    // Handle adjacent cell pairs like ["Barcode", "5205299033028"] or ["ΑΡ. ΚΑΤΑΛΟΓΟΥ :", "1003"]
+    for (let c = 0; c < denseCells.length - 1; c++) {
+      const k = denseCells[c];
+      const v = denseCells[c + 1];
       if (!k || !v) continue;
       if (/^barcode\s*:?$/i.test(k) && !extracted.barcode) extracted.barcode = v;
       if (/^label\s*:?$/i.test(k) && !extracted.label) extracted.label = v;
@@ -377,6 +383,12 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
         extracted.catalog_number = v;
       }
       if (/^(τραγουδιστης|album\s*artist)\s*:?$/i.test(k) && !extracted.album_artist) extracted.album_artist = v;
+    }
+
+    // Fallback: join row cells if no tokens matched per-cell (e.g. merged plain-text rows)
+    if (Object.keys(extracted).length === 0) {
+      const joined = nonEmptyCells.join('   ');
+      Object.assign(extracted, extractLabeledTokens(joined, HEADER_LABELS));
     }
 
     if (Object.keys(extracted).length === 0) {
@@ -391,9 +403,13 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     if (extracted.label) album.label = extracted.label;
     if (extracted.format) album.format = extracted.format;
     if (extracted.catalog_number) {
-      // Keep the cleaner catalog number if e.g. "4314" then "GM 4314"
-      if (!album.catalog_number || extracted.catalog_number.length >= album.catalog_number.length) {
-        album.catalog_number = extracted.catalog_number;
+      const candidateCat = extracted.catalog_number.trim();
+      // Keep the cleaner catalog number if e.g. "4314" then "GM 4314", avoiding huge unrelated notes
+      if (
+        !album.catalog_number ||
+        (candidateCat.length <= 48 && candidateCat.length >= album.catalog_number.length)
+      ) {
+        album.catalog_number = candidateCat;
       }
     }
     if (extracted.album_artist) album.album_artist = extracted.album_artist;
@@ -426,11 +442,14 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
   // Parse Song rows
   let footerStartIdx = rows.length;
   if (headerRowIdx !== -1) {
-    const headerCells = (rows[headerRowIdx] || []).map((c) => normalizeHeader(cleanStr(c)));
+    const rawHeaderRow = Array.isArray(rows[headerRowIdx]) ? rows[headerRowIdx] : [];
+    const headerCells = Array.from(rawHeaderRow, (c) => normalizeHeader(cleanStr(c)));
     const colIdx = {
       track_no: headerCells.findIndex((h) => h === 'a/a' || h === 'α/α' || h === 'track no' || h === '#'),
       title_gr: headerCells.findIndex((h) => h === 'τιτλος τραγουδιου' || h === 'title gr' || h === 'title_gr'),
-      title_en: headerCells.findIndex((h) => h.includes('τιτλος τραγουδιου') && h.includes('eng') || h === 'title en' || h === 'title_en'),
+      title_en: headerCells.findIndex(
+        (h) => (h.includes('τιτλος τραγουδιου') && h.includes('eng')) || h === 'title en' || h === 'title_en'
+      ),
       full_track: headerCells.findIndex((h) => h === 'ολοκληρο' || h === 'full track' || h === 'full_track'),
       pot_pouri: headerCells.findIndex((h) => h.includes('ποτ') || h.includes('pot pouri') || h === 'pot_pouri'),
       min: headerCells.findIndex((h) => h === 'min' || h === 'duration min'),
@@ -451,11 +470,11 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     };
 
     for (let r = headerRowIdx + 1; r < rows.length; r++) {
-      const row = rows[r] || [];
+      const row = Array.isArray(rows[r]) ? rows[r] : [];
       const firstCell = cleanStr(row[0]);
       const titleCell = colIdx.title_gr >= 0 ? cleanStr(row[colIdx.title_gr]) : '';
       const titleEnCell = colIdx.title_en >= 0 ? cleanStr(row[colIdx.title_en]) : '';
-      const rowJoined = row.map(cleanStr).filter(Boolean).join(' ');
+      const rowJoined = Array.from(row, cleanStr).filter(Boolean).join(' ');
 
       if (!rowJoined) continue;
 
@@ -512,8 +531,8 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
   // Parse footer block (Musicians, Web Link CD, Category, Producer, Production, Print)
   let inMusiciansSection = false;
   for (let r = footerStartIdx; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const cells = row.map(cleanStr).filter(Boolean);
+    const row = Array.isArray(rows[r]) ? rows[r] : [];
+    const cells = Array.from(row, cleanStr).filter(Boolean);
     if (cells.length === 0) continue;
 
     for (const cell of cells) {
