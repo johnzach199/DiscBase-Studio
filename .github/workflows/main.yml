@@ -88,7 +88,6 @@ jobs:
               extraMetadata: {
                 main: "electron/main.cjs"
               },
-              afterPack: "electron/afterPack.cjs",
               win: {
                 target: ["portable"]
               },
@@ -156,7 +155,7 @@ jobs:
 
           echo "Clearing xattrs and applying deep ad-hoc signature to $APP_PATH"
           xattr -cr "$APP_PATH"
-          codesign --force --deep --sign - --timestamp=none "$APP_PATH"
+          codesign --force --deep --sign - "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
           ditto "$APP_PATH" "$DMG_STAGE/DiscBase Studio.app"
