@@ -191,12 +191,33 @@ jobs:
           chmod +x "$APPIMAGE_ABS"
           EXTRACT_TMP="$(mktemp -d /tmp/appimage-verify.XXXXXX)"
           trap 'rm -rf "$EXTRACT_TMP"' EXIT
-          (cd "$EXTRACT_TMP" && "$APPIMAGE_ABS" --appimage-extract .DirIcon >/dev/null && "$APPIMAGE_ABS" --appimage-extract '*.png' >/dev/null || true)
-          if [ ! -e "$EXTRACT_TMP/squashfs-root/.DirIcon" ]; then
-            echo "Error: .DirIcon missing inside AppImage!"
+          (cd "$EXTRACT_TMP" && "$APPIMAGE_ABS" --appimage-extract >/dev/null)
+          echo "=== AppImage root contents ==="
+          ls -la "$EXTRACT_TMP/squashfs-root"
+          if [ ! -e "$EXTRACT_TMP/squashfs-root/.DirIcon" ] || [ ! -s "$EXTRACT_TMP/squashfs-root/.DirIcon" ]; then
+            echo "Notice: .DirIcon was missing or a broken symlink after extraction; repairing .DirIcon and repacking AppImage..."
+            ICON_SRC="build-resources/icons/256x256.png"
+            if [ ! -f "$ICON_SRC" ]; then
+              ICON_SRC="build-resources/icon.png"
+            fi
+            rm -f "$EXTRACT_TMP/squashfs-root/.DirIcon"
+            cp "$ICON_SRC" "$EXTRACT_TMP/squashfs-root/.DirIcon"
+            cp -f "$ICON_SRC" "$EXTRACT_TMP/squashfs-root/discbase-studio.png"
+            APPIMAGETOOL="$EXTRACT_TMP/appimagetool-x86_64.AppImage"
+            curl -fsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o "$APPIMAGETOOL"
+            chmod +x "$APPIMAGETOOL"
+            ARCH=x86_64 "$APPIMAGETOOL" --appimage-extract-and-run --no-appstream "$EXTRACT_TMP/squashfs-root" "$APPIMAGE_ABS"
+            chmod +x "$APPIMAGE_ABS"
+            rm -rf "$EXTRACT_TMP/squashfs-root"
+            (cd "$EXTRACT_TMP" && "$APPIMAGE_ABS" --appimage-extract >/dev/null)
+          fi
+          if [ ! -e "$EXTRACT_TMP/squashfs-root/.DirIcon" ] || [ ! -s "$EXTRACT_TMP/squashfs-root/.DirIcon" ]; then
+            echo "Error: .DirIcon missing or empty inside AppImage!"
+            ls -la "$EXTRACT_TMP/squashfs-root"
             exit 1
           fi
-          ls -la "$EXTRACT_TMP/squashfs-root/.DirIcon" "$EXTRACT_TMP/squashfs-root"/*.png 2>/dev/null || true
+          ls -lhL "$EXTRACT_TMP/squashfs-root/.DirIcon"
+          find "$EXTRACT_TMP/squashfs-root" -maxdepth 6 \( -name '*.desktop' -o -path '*/usr/share/icons/*' -name '*.png' \) | head -n 20
 
       - name: Verify Windows EXE embedded icon
         if: matrix.platform == 'windows'
