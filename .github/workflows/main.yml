@@ -49,7 +49,7 @@ jobs:
         if: matrix.platform == 'mac'
         shell: bash
         run: |
-          if [ -f "build-resources/icon.png" ] && [ ! -f "build-resources/icon.icns" ]; then
+          if [ -f "build-resources/icon.png" ]; then
             ICONSET_DIR="$(mktemp -d /tmp/discbase-icon.XXXXXX)/DiscBase.iconset"
             mkdir -p "$ICONSET_DIR"
             sips -z 16 16     build-resources/icon.png --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
@@ -87,7 +87,10 @@ jobs:
             const macIcon = fs.existsSync("build-resources/icon.icns")
               ? "build-resources/icon.icns"
               : (fs.existsSync("build-resources/icon.png") ? "build-resources/icon.png" : undefined);
-            const linuxIcon = fs.existsSync("build-resources/icon.png")
+            const linuxIcon = fs.existsSync("build-resources/icons")
+              ? "build-resources/icons"
+              : (fs.existsSync("build-resources/icon.png") ? "build-resources/icon.png" : undefined);
+            const baseIcon = fs.existsSync("build-resources/icon.png")
               ? "build-resources/icon.png"
               : undefined;
 
@@ -96,6 +99,7 @@ jobs:
               appId: "com.discbase.studio",
               productName: isLinux ? "DiscBase-Studio" : "DiscBase Studio",
               copyright: "Copyright © 2026 DiscBase Studio",
+              ...(baseIcon ? { icon: baseIcon } : {}),
               publish: null,
               asarUnpack: [
                 "dist/**/*",
@@ -122,7 +126,11 @@ jobs:
               },
               win: {
                 ...(winIcon ? { icon: winIcon } : {}),
+                signAndEditExecutable: true,
                 target: ["portable"]
+              },
+              portable: {
+                artifactName: "${productName}-${version}.${ext}"
               },
               mac: {
                 ...(macIcon ? { icon: macIcon } : {}),
@@ -138,6 +146,7 @@ jobs:
                 gatekeeperAssess: false
               },
               dmg: {
+                ...(macIcon ? { icon: macIcon } : {}),
                 sign: false,
                 writeUpdateInfo: false
               },
@@ -168,7 +177,41 @@ jobs:
           DEBUG: electron-builder
         run: npx electron-builder ${{ matrix.builder_args }} --config electron-builder.ci.json --publish never
 
-      - name: Sign & package verified universal macOS DMG
+      - name: Verify AppImage embedded icon & desktop entry
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(find dist-electron -maxdepth 1 -type f -name '*.AppImage' | head -n 1)
+          if [ -z "$APPIMAGE" ]; then
+            echo "Error: AppImage not found"
+            exit 1
+          fi
+          APPIMAGE_ABS="$(pwd)/$APPIMAGE"
+          chmod +x "$APPIMAGE_ABS"
+          EXTRACT_TMP="$(mktemp -d /tmp/appimage-verify.XXXXXX)"
+          trap 'rm -rf "$EXTRACT_TMP"' EXIT
+          (cd "$EXTRACT_TMP" && "$APPIMAGE_ABS" --appimage-extract .DirIcon >/dev/null && "$APPIMAGE_ABS" --appimage-extract '*.png' >/dev/null || true)
+          if [ ! -e "$EXTRACT_TMP/squashfs-root/.DirIcon" ]; then
+            echo "Error: .DirIcon missing inside AppImage!"
+            exit 1
+          fi
+          ls -la "$EXTRACT_TMP/squashfs-root/.DirIcon" "$EXTRACT_TMP/squashfs-root"/*.png 2>/dev/null || true
+
+      - name: Verify Windows EXE embedded icon
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path dist-electron -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { throw "No .exe generated in dist-electron" }
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe.FullName)
+          if ($null -eq $icon -or $icon.Width -le 0) {
+            throw "Failed to extract embedded icon from $($exe.FullName)"
+          }
+          Write-Host "Verified embedded icon ($($icon.Width)x$($icon.Height)) in $($exe.Name)"
+
+      - name: Sign & package verified universal macOS DMG with file & volume icon
         if: matrix.platform == 'mac'
         shell: bash
         run: |
@@ -182,11 +225,17 @@ jobs:
             exit 1
           fi
 
+          # Verify .app bundle has embedded icon.icns
+          ls -lh "$APP_PATH/Contents/Resources/"*.icns
+
           VERSION=$(node -p "require('./package.json').version")
           DMG_OUT="dist-electron/DiscBase-Studio-${VERSION}-universal.dmg"
-          DMG_STAGE="$(mktemp -d /tmp/discbase-dmg.XXXXXX)"
-          MOUNT_DIR="$(mktemp -d /tmp/discbase-mount.XXXXXX)"
-          trap 'hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true; rm -rf "$DMG_STAGE" "$MOUNT_DIR"' EXIT
+          WORK_TMP="$(mktemp -d /tmp/discbase-dmg.XXXXXX)"
+          DMG_RW="$WORK_TMP/rw.dmg"
+          DMG_STAGE="$WORK_TMP/stage"
+          MOUNT_DIR="$WORK_TMP/mount"
+          mkdir -p "$DMG_STAGE" "$MOUNT_DIR"
+          trap 'hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true; rm -rf "$WORK_TMP"' EXIT
 
           echo "Clearing xattrs and applying deep ad-hoc signature to $APP_PATH"
           xattr -cr "$APP_PATH"
@@ -196,19 +245,46 @@ jobs:
           ditto "$APP_PATH" "$DMG_STAGE/DiscBase Studio.app"
           ln -s /Applications "$DMG_STAGE/Applications"
 
+          if [ -f "build-resources/icon.icns" ]; then
+            cp "build-resources/icon.icns" "$DMG_STAGE/.VolumeIcon.icns"
+          fi
+
           rm -f "$DMG_OUT"
           hdiutil create \
             -volname "DiscBase Studio" \
             -srcfolder "$DMG_STAGE" \
+            -fs HFS+ \
             -ov \
-            -format UDZO \
-            "$DMG_OUT"
+            -format UDRW \
+            "$DMG_RW"
 
-          echo "Verifying DMG integrity and mounted bundle signature..."
+          if [ -f "$DMG_STAGE/.VolumeIcon.icns" ]; then
+            hdiutil attach "$DMG_RW" -mountpoint "$MOUNT_DIR" -readwrite -noverify -noautoopen
+            if command -v SetFile >/dev/null 2>&1; then
+              SetFile -a C "$MOUNT_DIR"
+              SetFile -a V "$MOUNT_DIR/.VolumeIcon.icns" || true
+            fi
+            sync
+            hdiutil detach "$MOUNT_DIR" || (sleep 2 && hdiutil detach "$MOUNT_DIR" -force)
+          fi
+
+          hdiutil convert "$DMG_RW" -format UDZO -imagekey zlib-level=9 -o "$DMG_OUT"
+
+          # Also stamp custom icon directly onto the .dmg file when macOS CLT Rez/DeRez/SetFile exist
+          if [ -f "build-resources/icon.icns" ] && command -v DeRez >/dev/null 2>&1 && command -v Rez >/dev/null 2>&1 && command -v SetFile >/dev/null 2>&1; then
+            cp "build-resources/icon.icns" "$WORK_TMP/icon.icns"
+            sips -i "$WORK_TMP/icon.icns" >/dev/null
+            DeRez -only icns "$WORK_TMP/icon.icns" > "$WORK_TMP/icon.rsrc"
+            Rez -append "$WORK_TMP/icon.rsrc" -o "$DMG_OUT"
+            SetFile -a C "$DMG_OUT"
+          fi
+
+          echo "Verifying DMG integrity, mounted volume icon, and bundle signature..."
           hdiutil verify "$DMG_OUT"
           hdiutil attach "$DMG_OUT" -mountpoint "$MOUNT_DIR" -nobrowse -readonly
+          ls -la "$MOUNT_DIR/.VolumeIcon.icns"
           codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/DiscBase Studio.app"
-          hdiutil detach "$MOUNT_DIR"
+          hdiutil detach "$MOUNT_DIR" || (sleep 2 && hdiutil detach "$MOUNT_DIR" -force)
           ls -lh "$DMG_OUT"
 
       - name: Stage executable for release job
