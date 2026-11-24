@@ -10,7 +10,7 @@ interface CatalogBrowserProps {
   onSearchChange: (q: string) => void;
   onOpenAlbum: (id: number) => void;
   onDeleteAlbum: (id: number) => Promise<void>;
-  onExportAlbum: (id: number) => void;
+  onExportAlbum: (id: number, format: 'xlsx' | 'numbers') => void;
   onNewAlbum: () => void;
   onGoToImport: () => void;
   onGoToMysql: () => void;
@@ -82,7 +82,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
             Album &amp; Song Catalog
           </h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Browse, edit, and export master discography records or batch import from Excel spreadsheets.
+            Browse, edit, and export master discography records or batch import from Excel (.xlsx) &amp; Apple Numbers (.numbers).
           </p>
         </div>
 
@@ -114,7 +114,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer whitespace-nowrap"
           >
             <FileSpreadsheet className="w-4 h-4 text-blue-700 dark:text-blue-400" />
-            <span>Import XLSX</span>
+            <span>Import XLSX / Numbers</span>
           </button>
         </div>
       </div>
@@ -291,7 +291,12 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
                         {album.album_artist || '—'}
                       </td>
                       <td className="py-2.5 px-4 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                        {[album.label, album.format].filter(Boolean).join(' · ') || '—'}
+                        <span>{[album.label, album.format].filter(Boolean).join(' · ') || '—'}</span>
+                        {(album.disc_count || 1) > 1 && (
+                          <span className="ml-1.5 inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded">
+                            {album.disc_count} CDs
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
                         {album.album_music_category || '—'}
@@ -337,12 +342,23 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => onExportAlbum(album.id)}
+                              onClick={() => onExportAlbum(album.id, 'xlsx')}
                               aria-label={`Export ${album.album_title} to XLSX`}
                               title="Export XLSX"
-                              className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer"
                             >
-                              <Download className="w-3.5 h-3.5" />
+                              <Download className="w-3 h-3" />
+                              <span>.xlsx</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onExportAlbum(album.id, 'numbers')}
+                              aria-label={`Export ${album.album_title} to Numbers`}
+                              title="Export Apple Numbers (.numbers)"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>.numbers</span>
                             </button>
                             <button
                               type="button"

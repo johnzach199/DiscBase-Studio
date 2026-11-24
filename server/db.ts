@@ -231,6 +231,7 @@ export class CatalogDatabase {
       CREATE TABLE IF NOT EXISTS songs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         album_id INTEGER NOT NULL,
+        disc_number INTEGER NOT NULL DEFAULT 1,
         track_no TEXT NOT NULL DEFAULT '',
         title_gr TEXT NOT NULL DEFAULT '',
         title_en TEXT NOT NULL DEFAULT '',
@@ -252,10 +253,30 @@ export class CatalogDatabase {
         aepi_percent REAL NULL DEFAULT NULL,
         final_aepi_percent REAL NULL DEFAULT NULL,
         notes TEXT DEFAULT '',
+        lyrics TEXT DEFAULT '',
         sort_order INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
       );
     `;
+  }
+
+  private ensureSqliteSongsColumns(db: SqlJsDatabase): void {
+    const pragma = db.exec('PRAGMA table_info(songs);');
+    const colNames = new Set<string>();
+    if (pragma.length > 0) {
+      const nameColIdx = pragma[0].columns.indexOf('name');
+      for (const row of pragma[0].values) {
+        if (nameColIdx >= 0 && row[nameColIdx]) {
+          colNames.add(String(row[nameColIdx]));
+        }
+      }
+    }
+    if (!colNames.has('disc_number')) {
+      db.exec('ALTER TABLE songs ADD COLUMN disc_number INTEGER NOT NULL DEFAULT 1;');
+    }
+    if (!colNames.has('lyrics')) {
+      db.exec("ALTER TABLE songs ADD COLUMN lyrics TEXT DEFAULT '';");
+    }
   }
 
   private sqliteAll<T = Record<string, unknown>>(
@@ -315,6 +336,7 @@ export class CatalogDatabase {
 
       db.exec('PRAGMA foreign_keys = ON;');
       db.exec(this.getSqliteSchemaSql());
+      this.ensureSqliteSongsColumns(db);
 
       if (this.sqliteDb) {
         this.sqliteDb.close();
@@ -377,6 +399,7 @@ export class CatalogDatabase {
     try {
       candidateDb.exec('PRAGMA foreign_keys = ON;');
       candidateDb.exec(this.getSqliteSchemaSql());
+      this.ensureSqliteSongsColumns(candidateDb);
     } catch (err) {
       candidateDb.close();
       throw new Error(err instanceof Error ? `Invalid SQLite database file: ${err.message}` : 'Invalid SQLite file');
@@ -463,13 +486,14 @@ export class CatalogDatabase {
       for (const s of clean.songs) {
         this.sqliteRun(
           `INSERT INTO songs (
-            album_id, track_no, title_gr, title_en, duration_min, duration_sec,
+            album_id, disc_number, track_no, title_gr, title_en, duration_min, duration_sec,
             total_seconds, full_track, pot_pouri, isrc_code, iswc_code, autodia_code,
             composer_gr, composer_en, songwriter_gr, songwriter_en, digital_web_link,
-            singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, sort_order
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, lyrics, sort_order
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             albumId,
+            s.disc_number || 1,
             s.track_no,
             s.title_gr,
             s.title_en,
@@ -491,6 +515,7 @@ export class CatalogDatabase {
             s.aepi_percent,
             s.final_aepi_percent,
             s.notes,
+            s.lyrics,
             s.sort_order,
           ]
         );
@@ -709,6 +734,7 @@ export class CatalogDatabase {
       CREATE TABLE IF NOT EXISTS songs (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         album_id INT UNSIGNED NOT NULL,
+        disc_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
         track_no VARCHAR(64) NOT NULL DEFAULT '',
         title_gr VARCHAR(512) NOT NULL DEFAULT '',
         title_en VARCHAR(512) NOT NULL DEFAULT '',
@@ -730,6 +756,7 @@ export class CatalogDatabase {
         aepi_percent DECIMAL(8,4) NULL DEFAULT NULL,
         final_aepi_percent DECIMAL(10,5) NULL DEFAULT NULL,
         notes TEXT,
+        lyrics LONGTEXT,
         sort_order INT UNSIGNED NOT NULL DEFAULT 0,
         PRIMARY KEY (id),
         INDEX idx_songs_album (album_id),
@@ -850,6 +877,18 @@ export class CatalogDatabase {
           await pool.query(spec.sql).catch(() => {});
         }
       }
+
+      // Add multi-CD disc_number and lyrics columns on pre-existing MySQL databases
+      if (!colLen.has('songs.disc_number')) {
+        await pool
+          .query('ALTER TABLE songs ADD COLUMN disc_number SMALLINT UNSIGNED NOT NULL DEFAULT 1 AFTER album_id')
+          .catch(() => {});
+      }
+      if (!colLen.has('songs.lyrics')) {
+        await pool
+          .query('ALTER TABLE songs ADD COLUMN lyrics LONGTEXT AFTER notes')
+          .catch(() => {});
+      }
     } catch {
       // Non-fatal if user lacks ALTER privileges
     }
@@ -942,8 +981,12 @@ export class CatalogDatabase {
     return findDuplicateInList(candidate, filtered);
   }
 
-  public async importAlbumsDeduplicated(albums: Album[]): Promise<{
+  public async importAlbumsDeduplicated(
+    albums: Album[],
+    options?: { replaceExisting?: boolean; replaceIndices?: number[] }
+  ): Promise<{
     imported: Album[];
+    replaced: Album[];
     skipped: Array<{
       album_title: string;
       catalog_number: string;
@@ -957,14 +1000,63 @@ export class CatalogDatabase {
     }>;
   }> {
     const existing = await this.listAlbums();
-    const { unique, skipped } = deduplicateAlbumBatch(albums, existing);
+    const replaceSet = new Set(options?.replaceIndices || []);
+    const replaceAll = Boolean(options?.replaceExisting);
+
+    const toInsert: Album[] = [];
+    const toReplace: Array<{ id: number; album: Album }> = [];
+    const skipped: Array<{
+      album_title: string;
+      catalog_number: string;
+      barcode: string;
+      reason: 'database' | 'batch';
+    }> = [];
+
+    const seenInBatch: Album[] = [];
+    const replacedDbIds = new Set<number>();
+
+    for (let idx = 0; idx < albums.length; idx++) {
+      const candidate = albums[idx];
+      const batchDup = findDuplicateInList(candidate, seenInBatch);
+      if (batchDup) {
+        skipped.push({
+          album_title: candidate.album_title,
+          catalog_number: candidate.catalog_number,
+          barcode: candidate.barcode,
+          reason: 'batch',
+        });
+        continue;
+      }
+
+      const dbMatch = findDuplicateInList(candidate, existing);
+      if (dbMatch) {
+        const shouldReplace = replaceAll || replaceSet.has(idx);
+        if (shouldReplace && !replacedDbIds.has(dbMatch.id)) {
+          replacedDbIds.add(dbMatch.id);
+          seenInBatch.push(candidate);
+          toReplace.push({ id: dbMatch.id, album: candidate });
+        } else {
+          skipped.push({
+            album_title: candidate.album_title,
+            catalog_number: candidate.catalog_number,
+            barcode: candidate.barcode,
+            reason: 'database',
+          });
+        }
+        continue;
+      }
+
+      seenInBatch.push(candidate);
+      toInsert.push(candidate);
+    }
 
     const imported: Album[] = [];
+    const replaced: Album[] = [];
     const failed: Array<{ album_title: string; catalog_number: string; error: string }> = [];
 
-    // Fast path for SQLite: insert all unique albums and persist disk buffer once at the end
+    // Fast path for SQLite: insert new albums and persist disk buffer once at the end
     if (!this.mysqlConnected && this.sqliteDb) {
-      for (const album of unique) {
+      for (const album of toInsert) {
         try {
           const clean = this.normalizeAlbumPayload(album);
           const albumId = this.insertAlbumIntoSqlite(clean);
@@ -982,7 +1074,7 @@ export class CatalogDatabase {
         this.persistSqlite();
       }
     } else {
-      for (const album of unique) {
+      for (const album of toInsert) {
         try {
           const saved = await this.createAlbum(album);
           imported.push(saved);
@@ -996,14 +1088,25 @@ export class CatalogDatabase {
       }
     }
 
+    for (const entry of toReplace) {
+      try {
+        const updated = await this.updateAlbum(entry.id, entry.album);
+        if (updated) {
+          replaced.push(updated);
+        }
+      } catch (err) {
+        failed.push({
+          album_title: entry.album.album_title || 'Untitled',
+          catalog_number: entry.album.catalog_number || '',
+          error: err instanceof Error ? err.message : 'Failed to replace existing album',
+        });
+      }
+    }
+
     return {
       imported,
-      skipped: skipped.map((s) => ({
-        album_title: s.item.album_title,
-        catalog_number: s.item.catalog_number,
-        barcode: s.item.barcode,
-        reason: s.reason,
-      })),
+      replaced,
+      skipped,
       failed,
     };
   }
@@ -1049,8 +1152,10 @@ export class CatalogDatabase {
 
     const songs: Song[] = (input.songs || []).map((s, idx) => {
       const total_seconds = computeSongSeconds(s.duration_min, s.duration_sec);
+      const rawDisc = typeof s.disc_number === 'number' && Number.isFinite(s.disc_number) ? Math.trunc(s.disc_number) : 1;
       return {
         ...s,
+        disc_number: rawDisc >= 1 ? rawDisc : 1,
         track_no: clampField(s.track_no, 64),
         title_gr: clampField(s.title_gr, 255),
         title_en: clampField(s.title_en, 255),
@@ -1072,6 +1177,7 @@ export class CatalogDatabase {
         aepi_percent: s.aepi_percent ?? null,
         final_aepi_percent: s.final_aepi_percent ?? null,
         notes: String(s.notes ?? '').trim(),
+        lyrics: String(s.lyrics ?? '').replace(/\r\n/g, '\n').trim(),
         sort_order: idx,
       };
     });
@@ -1162,6 +1268,7 @@ export class CatalogDatabase {
       })),
       songs: sRows.map((s) => ({
         id: Number(s.id),
+        disc_number: Math.max(1, Number(s.disc_number || 1)),
         track_no: String(s.track_no || ''),
         title_gr: String(s.title_gr || ''),
         title_en: String(s.title_en || ''),
@@ -1186,6 +1293,7 @@ export class CatalogDatabase {
             ? Number(s.final_aepi_percent)
             : null,
         notes: String(s.notes || ''),
+        lyrics: String(s.lyrics || ''),
         sort_order: Number(s.sort_order || 0),
       })),
     };
@@ -1205,6 +1313,7 @@ export class CatalogDatabase {
           COUNT(DISTINCT s.id) AS track_count,
           COALESCE(SUM(CASE WHEN s.full_track = 1 THEN 1 ELSE 0 END), 0) AS full_track_count,
           COALESCE(SUM(CASE WHEN s.pot_pouri = 1 THEN 1 ELSE 0 END), 0) AS pot_pouri_count,
+          COALESCE(MAX(s.disc_number), 1) AS disc_count,
           (SELECT COUNT(*) FROM album_musicians m WHERE m.album_id = a.id) AS musician_count
         FROM albums a
         LEFT JOIN songs s ON s.album_id = a.id
@@ -1228,6 +1337,7 @@ export class CatalogDatabase {
         full_track_count: Number(r.full_track_count || 0),
         pot_pouri_count: Number(r.pot_pouri_count || 0),
         musician_count: Number(r.musician_count || 0),
+        disc_count: Math.max(1, Number(r.disc_count || 1)),
         updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : undefined,
       }));
       if (!q) return mapped;
@@ -1251,6 +1361,7 @@ export class CatalogDatabase {
           COUNT(DISTINCT s.id) AS track_count,
           COALESCE(SUM(CASE WHEN s.full_track = 1 THEN 1 ELSE 0 END), 0) AS full_track_count,
           COALESCE(SUM(CASE WHEN s.pot_pouri = 1 THEN 1 ELSE 0 END), 0) AS pot_pouri_count,
+          COALESCE(MAX(s.disc_number), 1) AS disc_count,
           (SELECT COUNT(*) FROM album_musicians m WHERE m.album_id = a.id) AS musician_count
         FROM albums a
         LEFT JOIN songs s ON s.album_id = a.id
@@ -1274,6 +1385,7 @@ export class CatalogDatabase {
         full_track_count: Number(r.full_track_count || 0),
         pot_pouri_count: Number(r.pot_pouri_count || 0),
         musician_count: Number(r.musician_count || 0),
+        disc_count: Math.max(1, Number(r.disc_count || 1)),
         updated_at: r.updated_at ? String(r.updated_at) : undefined,
       }));
       if (!q) return mapped;
@@ -1285,8 +1397,9 @@ export class CatalogDatabase {
               OR LOWER(title_en) LIKE ?
               OR LOWER(isrc_code) LIKE ?
               OR LOWER(singer_gr) LIKE ?
-              OR LOWER(composer_gr) LIKE ?`,
-          [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+              OR LOWER(composer_gr) LIKE ?
+              OR LOWER(lyrics) LIKE ?`,
+          [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
         ).map((row) => Number(row.album_id))
       );
 
@@ -1325,6 +1438,7 @@ export class CatalogDatabase {
           full_track_count: stats.fullTrackCount,
           pot_pouri_count: stats.potPouriCount,
           musician_count: a.musicians.filter((m) => m.name || m.role).length,
+          disc_count: stats.discCount,
           updated_at: a.updated_at,
         };
       });
@@ -1347,7 +1461,8 @@ export class CatalogDatabase {
             s.title_en.toLowerCase().includes(q) ||
             s.isrc_code.toLowerCase().includes(q) ||
             s.singer_gr.toLowerCase().includes(q) ||
-            s.composer_gr.toLowerCase().includes(q)
+            s.composer_gr.toLowerCase().includes(q) ||
+            (s.lyrics || '').toLowerCase().includes(q)
         )
       );
     });
@@ -1399,6 +1514,7 @@ export class CatalogDatabase {
         })),
         songs: sRows.map((s) => ({
           id: Number(s.id),
+          disc_number: Math.max(1, Number(s.disc_number || 1)),
           track_no: String(s.track_no || ''),
           title_gr: String(s.title_gr || ''),
           title_en: String(s.title_en || ''),
@@ -1420,6 +1536,7 @@ export class CatalogDatabase {
           aepi_percent: s.aepi_percent !== null ? Number(s.aepi_percent) : null,
           final_aepi_percent: s.final_aepi_percent !== null ? Number(s.final_aepi_percent) : null,
           notes: String(s.notes || ''),
+          lyrics: String(s.lyrics || ''),
           sort_order: Number(s.sort_order || 0),
         })),
       };
@@ -1430,7 +1547,16 @@ export class CatalogDatabase {
     }
 
     const store = this.readLocalStore();
-    return store.albums.find((a) => a.id === id) || null;
+    const localFound = store.albums.find((a) => a.id === id);
+    if (!localFound) return null;
+    return {
+      ...localFound,
+      songs: (localFound.songs || []).map((s) => ({
+        ...s,
+        disc_number: Math.max(1, Number(s.disc_number || 1)),
+        lyrics: String(s.lyrics || ''),
+      })),
+    };
   }
 
   public async createAlbum(input: Album): Promise<Album> {
@@ -1481,13 +1607,14 @@ export class CatalogDatabase {
         for (const s of clean.songs) {
           await conn.query(
             `INSERT INTO songs (
-              album_id, track_no, title_gr, title_en, duration_min, duration_sec,
+              album_id, disc_number, track_no, title_gr, title_en, duration_min, duration_sec,
               total_seconds, full_track, pot_pouri, isrc_code, iswc_code, autodia_code,
               composer_gr, composer_en, songwriter_gr, songwriter_en, digital_web_link,
-              singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, sort_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, lyrics, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               albumId,
+              s.disc_number || 1,
               s.track_no,
               s.title_gr,
               s.title_en,
@@ -1509,6 +1636,7 @@ export class CatalogDatabase {
               s.aepi_percent,
               s.final_aepi_percent,
               s.notes,
+              s.lyrics,
               s.sort_order,
             ]
           );
@@ -1601,13 +1729,14 @@ export class CatalogDatabase {
         for (const s of clean.songs) {
           await conn.query(
             `INSERT INTO songs (
-              album_id, track_no, title_gr, title_en, duration_min, duration_sec,
+              album_id, disc_number, track_no, title_gr, title_en, duration_min, duration_sec,
               total_seconds, full_track, pot_pouri, isrc_code, iswc_code, autodia_code,
               composer_gr, composer_en, songwriter_gr, songwriter_en, digital_web_link,
-              singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, sort_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, lyrics, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
+              s.disc_number || 1,
               s.track_no,
               s.title_gr,
               s.title_en,
@@ -1629,6 +1758,7 @@ export class CatalogDatabase {
               s.aepi_percent,
               s.final_aepi_percent,
               s.notes,
+              s.lyrics,
               s.sort_order,
             ]
           );
@@ -1694,13 +1824,14 @@ export class CatalogDatabase {
         for (const s of clean.songs) {
           this.sqliteRun(
             `INSERT INTO songs (
-              album_id, track_no, title_gr, title_en, duration_min, duration_sec,
+              album_id, disc_number, track_no, title_gr, title_en, duration_min, duration_sec,
               total_seconds, full_track, pot_pouri, isrc_code, iswc_code, autodia_code,
               composer_gr, composer_en, songwriter_gr, songwriter_en, digital_web_link,
-              singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, sort_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              singer_gr, singer_en, aepi_percent, final_aepi_percent, notes, lyrics, sort_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
+              s.disc_number || 1,
               s.track_no,
               s.title_gr,
               s.title_en,
@@ -1722,6 +1853,7 @@ export class CatalogDatabase {
               s.aepi_percent,
               s.final_aepi_percent,
               s.notes,
+              s.lyrics,
               s.sort_order,
             ]
           );

@@ -1,6 +1,7 @@
 appId: com.discbase.studio
 productName: DiscBase Studio
 copyright: Copyright © 2026 DiscBase Studio
+icon: build-resources/icon.png
 publish: null
 asarUnpack:
   - dist/**/*
@@ -24,10 +25,13 @@ extraMetadata:
 afterPack: electron/afterPack.cjs
 win:
   icon: build-resources/icon.ico
+  signAndEditExecutable: true
   target:
     - portable
+portable:
+  artifactName: ${productName}-${version}.${ext}
 mac:
-  icon: build-resources/icon.png
+  icon: build-resources/icon.icns
   target:
     - target: dmg
       arch:
@@ -37,10 +41,11 @@ mac:
   hardenedRuntime: false
   gatekeeperAssess: false
 dmg:
+  icon: build-resources/icon.icns
   sign: false
   writeUpdateInfo: false
 linux:
-  icon: build-resources/icon.png
+  icon: build-resources/icons
   target:
     - AppImage
   executableName: discbase-studio

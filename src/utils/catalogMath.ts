@@ -17,6 +17,31 @@ export function formatSecondsAsTime(totalSeconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+export function safeHttpUrl(raw: string | null | undefined): string | null {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return null;
+  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) return null;
+
+  let candidate = trimmed;
+  if (!/^https?:\/\//i.test(candidate)) {
+    if (/^www\./i.test(candidate) || /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$)/i.test(candidate)) {
+      candidate = `https://${candidate}`;
+    } else {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export interface AlbumStats {
   totalSeconds: number;
   formattedTime: string;
@@ -24,6 +49,7 @@ export interface AlbumStats {
   potPouriCount: number;
   totalTracks: number;
   totalAepiPercent: number;
+  discCount: number;
 }
 
 export function computeAlbumStats(songs: Song[]): AlbumStats {
@@ -31,6 +57,7 @@ export function computeAlbumStats(songs: Song[]): AlbumStats {
   let fullTrackCount = 0;
   let potPouriCount = 0;
   let totalAepiPercent = 0;
+  let maxDisc = 1;
 
   for (const song of songs) {
     const secs = computeSongSeconds(song.duration_min, song.duration_sec);
@@ -40,6 +67,8 @@ export function computeAlbumStats(songs: Song[]): AlbumStats {
     if (typeof song.final_aepi_percent === 'number' && Number.isFinite(song.final_aepi_percent)) {
       totalAepiPercent += song.final_aepi_percent;
     }
+    const disc = typeof song.disc_number === 'number' && Number.isFinite(song.disc_number) ? Math.max(1, Math.trunc(song.disc_number)) : 1;
+    if (disc > maxDisc) maxDisc = disc;
   }
 
   return {
@@ -49,11 +78,13 @@ export function computeAlbumStats(songs: Song[]): AlbumStats {
     potPouriCount,
     totalTracks: songs.length,
     totalAepiPercent: Number(totalAepiPercent.toFixed(5)),
+    discCount: songs.length > 0 ? maxDisc : 1,
   };
 }
 
-export function createEmptySong(sortOrder = 0): Song {
+export function createEmptySong(sortOrder = 0, discNumber = 1): Song {
   return {
+    disc_number: discNumber,
     track_no: String(sortOrder + 1),
     title_gr: '',
     title_en: '',
@@ -75,6 +106,7 @@ export function createEmptySong(sortOrder = 0): Song {
     aepi_percent: null,
     final_aepi_percent: null,
     notes: '',
+    lyrics: '',
     sort_order: sortOrder,
   };
 }
@@ -101,8 +133,66 @@ export function createEmptyAlbum(): Album {
     physical_product_web_link: '',
     notes: '',
     musicians: [{ role: '', name: '', sort_order: 0 }],
-    songs: [createEmptySong(0)],
+    songs: [createEmptySong(0, 1)],
   };
+}
+
+export function createSampleTemplateAlbum(): Album {
+  const sample = createEmptyAlbum();
+  sample.phonographic_company = 'ΣΤΑΜΑΤΕΛΑΤΟΣ ΣΩΤΗΡΙΟΣ & ΣΙΑ Ο.Ε.';
+  sample.catalog_number = 'GM 0000';
+  sample.barcode = '5205299000000';
+  sample.label = 'GM';
+  sample.format = '2 CD';
+  sample.album_title = 'SAMPLE MULTI-CD ALBUM';
+  sample.album_artist = 'SAMPLE ARTIST';
+  sample.album_music_category = 'Δημοτικα';
+  sample.producer = 'PRODUCER NAME';
+  sample.production_company = 'GENERAL MUSIC';
+  sample.cd_digital_playlist_link = 'https://www.youtube.com/playlist?list=SAMPLE';
+  sample.physical_product_web_link = 'https://www.generalmusic.gr/';
+
+  const s1 = createEmptySong(0, 1);
+  s1.track_no = '1';
+  s1.title_gr = 'ΔΕΙΓΜΑ ΤΡΑΓΟΥΔΙΟΥ (CD 1)';
+  s1.title_en = 'Sample Song (CD 1)';
+  s1.duration_min = 3;
+  s1.duration_sec = 20;
+  s1.total_seconds = 200;
+  s1.isrc_code = 'GRGM12600001';
+  s1.singer_gr = 'SAMPLE ARTIST';
+  s1.digital_web_link = 'https://www.youtube.com/watch?v=SAMPLE1';
+  s1.lyrics = [
+    '0:10',
+    '[μουσική]',
+    '0:24',
+    'δεν θέλω παιδιά να',
+    '0:28',
+    'δεν θέλω παιδιά να αγαπώ',
+    '0:30',
+    'δεν θέλω πια να τη',
+    '0:34',
+    'δω μη με ρωτάτε γιατί μα ρωτήστε',
+  ].join('\n');
+
+  const s2 = createEmptySong(1, 2);
+  s2.track_no = '1';
+  s2.title_gr = 'ΔΕΙΓΜΑ ΤΡΑΓΟΥΔΙΟΥ (CD 2)';
+  s2.title_en = 'Sample Song (CD 2)';
+  s2.duration_min = 4;
+  s2.duration_sec = 10;
+  s2.total_seconds = 250;
+  s2.isrc_code = 'GRGM12600002';
+  s2.singer_gr = 'SAMPLE ARTIST';
+  s2.digital_web_link = 'https://www.youtube.com/watch?v=SAMPLE2';
+  s2.lyrics = '0:05\n[μουσική]\n0:18\nΣτίχοι δεύτερου δίσκου...';
+
+  sample.songs = [s1, s2];
+  const stats = computeAlbumStats(sample.songs);
+  sample.total_seconds = stats.totalSeconds;
+  sample.album_time = stats.formattedTime;
+  sample.musicians = [{ role: 'Κλαρίνο', name: 'ΟΝΟΜΑ ΜΟΥΣΙΚΟΥ', sort_order: 0 }];
+  return sample;
 }
 
 export function validateAlbum(album: Album): ValidationResult {
@@ -172,21 +262,18 @@ export function areAlbumsIdentical(a: AlbumIdentityLike, b: AlbumIdentityLike): 
   const artistA = normalizeMatchText(a.album_artist);
   const artistB = normalizeMatchText(b.album_artist);
 
-  // Same barcode (unless both catalog numbers exist and explicitly differ alongside different titles)
   if (bcA && bcB && bcA === bcB) {
     if (!catA || !catB || catA === catB || (titleA && titleA === titleB)) {
       return true;
     }
   }
 
-  // Same catalog number + same title (and compatible barcode)
   if (catA && catB && catA === catB && titleA && titleB && titleA === titleB) {
     if (!bcA || !bcB || bcA === bcB) {
       return true;
     }
   }
 
-  // Same catalog number + same artist when barcode is identical or empty on either
   if (catA && catB && catA === catB && artistA && artistB && artistA === artistB) {
     if ((!bcA || !bcB || bcA === bcB) && (!titleA || !titleB || titleA === titleB)) {
       return true;
@@ -249,27 +336,138 @@ export function deduplicateAlbumBatch<T extends AlbumIdentityLike>(
 
 function cleanStr(v: unknown): string {
   if (v === null || v === undefined) return '';
-  return String(v).replace(/\u00a0/g, ' ').trim();
+  return String(v).replace(/\u00a0/g, ' ').replace(/\r\n/g, '\n').trim();
 }
 
 function parseOptionalInt(v: unknown): number | null {
+  if (typeof v === 'number') {
+    return Number.isFinite(v) ? Math.round(v) : null;
+  }
   const s = cleanStr(v);
   if (!s) return null;
   const n = Number(s.replace(/,/g, ''));
-  return Number.isFinite(n) ? Math.trunc(n) : null;
+  return Number.isFinite(n) ? Math.round(n) : null;
 }
 
 function parseOptionalFloat(v: unknown): number | null {
+  if (typeof v === 'number') {
+    return Number.isFinite(v) ? Number(v.toPrecision(12)) : null;
+  }
   const s = cleanStr(v);
   if (!s) return null;
   const n = Number(s.replace(/,/g, ''));
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) ? Number(n.toPrecision(12)) : null;
 }
 
 function parseCheckFlag(v: unknown): boolean {
   if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return Number.isFinite(v) && Math.abs(v - 1) < 1e-4;
   const s = cleanStr(v).toLowerCase();
-  return s === '1' || s === 'true' || s === 'yes' || s === 'x' || s === '✓';
+  if (s === '1' || s === 'true' || s === 'yes' || s === 'x' || s === '✓') return true;
+  const num = Number(s);
+  return s !== '' && Number.isFinite(num) && Math.abs(num - 1) < 1e-4;
+}
+
+function parseDiscCell(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    const r = Math.round(v);
+    if (Math.abs(v - r) < 1e-4 && r >= 1 && r <= 30) return r;
+    return null;
+  }
+  const s = cleanStr(v);
+  if (!s) return null;
+  if (/^\d{1,2}(?:\.\d+)?$/.test(s)) {
+    const num = Number(s);
+    const r = Math.round(num);
+    if (Number.isFinite(num) && Math.abs(num - r) < 1e-4 && r >= 1 && r <= 30) {
+      return r;
+    }
+  }
+  const m = s.match(/^(?:cd|disc|disk|δ[ιί]σκος)\s*[-_#:.]?\s*(\d{1,2})$/i);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    return n >= 1 && n <= 30 ? n : null;
+  }
+  return null;
+}
+
+export function detectDiscNumberFromLabel(text: string): number | null {
+  const cleaned = text.trim();
+  if (!cleaned) return null;
+  const standalone = cleaned.match(/^[-=\s*]*(?:cd|disc|disk|δ[ιί]σκος)\s*[-_#:.]?\s*(\d{1,2})[-=\s*]*$/i);
+  if (standalone) {
+    const n = parseInt(standalone[1], 10);
+    return n >= 1 && n <= 30 ? n : null;
+  }
+  const suffix = cleaned.match(/\b(?:cd|disc|disk|δ[ιί]σκος)\s*[-_#:.]?\s*(\d{1,2})\b/i);
+  if (suffix) {
+    const n = parseInt(suffix[1], 10);
+    return n >= 1 && n <= 30 ? n : null;
+  }
+  return null;
+}
+
+/**
+ * RFC-4180 aware delimited parser supporting quoted multi-line cells (e.g. timestamped lyrics)
+ * in both tab-delimited (TSV) and comma-delimited (CSV) pasted text.
+ */
+export function parseDelimitedText(text: string): unknown[][] {
+  if (!text) return [];
+  const firstLine = text.split(/\r?\n/, 1)[0] || '';
+  const delimiter = text.includes('\t') && firstLine.includes('\t')
+    ? '\t'
+    : text.includes('\t')
+    ? '\t'
+    : ',';
+
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"' && cell.length === 0) {
+      inQuotes = true;
+    } else if (ch === delimiter) {
+      row.push(cell);
+      cell = '';
+    } else if (ch === '\r') {
+      if (text[i + 1] === '\n') i++;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else if (ch === '\n') {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += ch;
+    }
+  }
+
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  return rows;
 }
 
 function extractLabeledTokens(text: string, labels: Array<{ key: string; patterns: RegExp[] }>): Record<string, string> {
@@ -325,7 +523,50 @@ const HEADER_LABELS = [
   { key: 'print_design', patterns: [/Μακ[έε]τα[-\s/]*Εκτ[ύυ]πωση\s*:/i, /Μακ[έε]τα[-\s/]*Διαχωρισμο[ίι]\s*:/i] },
 ];
 
-export function parseSpreadsheetRows(rows: unknown[][]): Album {
+function isSongHeaderRow(normalizedCells: string[]): boolean {
+  const hasTitle = normalizedCells.some(
+    (c) => c.includes('τιτλος τραγουδιου') || c === 'title gr' || c === 'title_gr' || c === 'title en'
+  );
+  const hasIsrcOrMin = normalizedCells.some(
+    (c) => c.includes('isrc') || c === 'min' || c === 'ολοκληρο' || c === 'full track'
+  );
+  return hasTitle && hasIsrcOrMin;
+}
+
+function buildColIdxMap(headerCells: string[]) {
+  return {
+    disc_number: headerCells.findIndex(
+      (h) => h === 'cd' || h === 'disc' || h === 'disk' || h === 'cd #' || h === 'disc #' || h === 'δισκος'
+    ),
+    track_no: headerCells.findIndex((h) => h === 'a/a' || h === 'α/α' || h === 'track no' || h === '#'),
+    title_gr: headerCells.findIndex((h) => h === 'τιτλος τραγουδιου' || h === 'title gr' || h === 'title_gr'),
+    title_en: headerCells.findIndex(
+      (h) => (h.includes('τιτλος τραγουδιου') && h.includes('eng')) || h === 'title en' || h === 'title_en'
+    ),
+    full_track: headerCells.findIndex((h) => h === 'ολοκληρο' || h === 'full track' || h === 'full_track'),
+    pot_pouri: headerCells.findIndex((h) => h.includes('ποτ') || h.includes('pot pouri') || h === 'pot_pouri'),
+    min: headerCells.findIndex((h) => h === 'min' || h === 'duration min'),
+    sec: headerCells.findIndex((h) => h === 'sec' || h === 'duration sec'),
+    isrc_code: headerCells.findIndex((h) => h.includes('isrc')),
+    composer_gr: headerCells.findIndex((h) => h === 'συνθετης' || h === 'composer gr' || h === 'composer_gr'),
+    composer_en: headerCells.findIndex((h) => h === 'composer en' || h === 'composer_en' || h.includes('δημιουργοι')),
+    songwriter_gr: headerCells.findIndex((h) => h === 'στιχουργος' || h === 'songwriter gr' || h === 'songwriter_gr'),
+    songwriter_en: headerCells.findIndex((h) => h === 'songwriter en' || h === 'songwriter_en'),
+    autodia_code: headerCells.findIndex((h) => h.includes('autodia')),
+    iswc_code: headerCells.findIndex((h) => h === 'iswc' || h === 'iswc code' || h === 'iswc_code'),
+    digital_web_link: headerCells.findIndex((h) => h.includes('youtube') || h.includes('digital web link')),
+    aepi_percent: headerCells.findIndex((h) => h === 'ποσοστο αεπι %' || h === 'ποσοστο αεπι%'),
+    final_aepi_percent: headerCells.findIndex((h) => h.includes('τελικο ποσοστο αεπι')),
+    singer_gr: headerCells.findIndex((h) => h === 'τραγουδιστης' || h === 'singer gr' || h === 'singer_gr'),
+    singer_en: headerCells.findIndex((h) => h === 'singer en' || h === 'singer_en'),
+    notes: headerCells.findIndex((h) => h === 'παρατηρησεις' || h === 'notes'),
+    lyrics: headerCells.findIndex(
+      (h) => !h.includes('στιχουργ') && (h === 'στιχοι' || h.startsWith('στιχοι') || h === 'lyrics' || h.includes('lyrics'))
+    ),
+  };
+}
+
+export function parseSpreadsheetRows(rows: unknown[][], defaultDiscNumber = 1): Album {
   const album = createEmptyAlbum();
   album.musicians = [];
   album.songs = [];
@@ -334,24 +575,16 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     return createEmptyAlbum();
   }
 
-  // Locate the song table header row (Array.from eliminates sparse empty slots)
   let headerRowIdx = -1;
   for (let r = 0; r < rows.length; r++) {
     const row = Array.isArray(rows[r]) ? rows[r] : [];
     const normalizedCells = Array.from(row, (c) => normalizeHeader(cleanStr(c)));
-    const hasTitle = normalizedCells.some(
-      (c) => c.includes('τιτλος τραγουδιου') || c === 'title gr' || c === 'title_gr'
-    );
-    const hasIsrcOrMin = normalizedCells.some(
-      (c) => c.includes('isrc') || c === 'min' || c === 'ολοκληρο' || c === 'full track'
-    );
-    if (hasTitle && hasIsrcOrMin) {
+    if (isSongHeaderRow(normalizedCells)) {
       headerRowIdx = r;
       break;
     }
   }
 
-  // Parse header/general metadata rows above the song table
   const metaEnd = headerRowIdx === -1 ? Math.min(rows.length, 15) : headerRowIdx;
   const extraArtistLines: string[] = [];
 
@@ -361,7 +594,6 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     const nonEmptyCells = denseCells.filter(Boolean);
     if (nonEmptyCells.length === 0) continue;
 
-    // Extract per-cell labeled tokens first so trailing unlabelled cells in later columns don't bleed into catalog_number
     const extracted: Record<string, string> = {};
     for (const cellText of nonEmptyCells) {
       const cellTokens = extractLabeledTokens(cellText, HEADER_LABELS);
@@ -370,7 +602,6 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
       }
     }
 
-    // Handle adjacent cell pairs like ["Barcode", "5205299033028"] or ["ΑΡ. ΚΑΤΑΛΟΓΟΥ :", "1003"]
     for (let c = 0; c < denseCells.length - 1; c++) {
       const k = denseCells[c];
       const v = denseCells[c + 1];
@@ -385,14 +616,12 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
       if (/^(τραγουδιστης|album\s*artist)\s*:?$/i.test(k) && !extracted.album_artist) extracted.album_artist = v;
     }
 
-    // Fallback: join row cells if no tokens matched per-cell (e.g. merged plain-text rows)
     if (Object.keys(extracted).length === 0) {
       const joined = nonEmptyCells.join('   ');
       Object.assign(extracted, extractLabeledTokens(joined, HEADER_LABELS));
     }
 
     if (Object.keys(extracted).length === 0) {
-      // Check if it's a featured artists continuation line (like in 4314 row 3)
       if (nonEmptyCells.length === 1 && album.album_artist && !album.album_title) {
         extraArtistLines.push(nonEmptyCells[0]);
       }
@@ -404,7 +633,6 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     if (extracted.format) album.format = extracted.format;
     if (extracted.catalog_number) {
       const candidateCat = extracted.catalog_number.trim();
-      // Keep the cleaner catalog number if e.g. "4314" then "GM 4314", avoiding huge unrelated notes
       if (
         !album.catalog_number ||
         (candidateCat.length <= 48 && candidateCat.length >= album.catalog_number.length)
@@ -433,50 +661,30 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     }
     if (extracted.barcode) album.barcode = extracted.barcode;
     if (extracted.album_title) album.album_title = extracted.album_title;
+    if (extracted.physical_product_web_link) album.physical_product_web_link = extracted.physical_product_web_link;
+    if (extracted.cd_digital_playlist_link) album.cd_digital_playlist_link = extracted.cd_digital_playlist_link;
   }
 
   if (extraArtistLines.length > 0) {
     album.featured_artists = extraArtistLines.join(' ').trim();
   }
 
-  // Parse Song rows
+  // Parse Song rows (supports both CD column & inline CD 1 / CD 2 section headers)
   let footerStartIdx = rows.length;
+  let currentDiscNumber = Math.max(1, defaultDiscNumber);
+
   if (headerRowIdx !== -1) {
     const rawHeaderRow = Array.isArray(rows[headerRowIdx]) ? rows[headerRowIdx] : [];
     const headerCells = Array.from(rawHeaderRow, (c) => normalizeHeader(cleanStr(c)));
-    const colIdx = {
-      track_no: headerCells.findIndex((h) => h === 'a/a' || h === 'α/α' || h === 'track no' || h === '#'),
-      title_gr: headerCells.findIndex((h) => h === 'τιτλος τραγουδιου' || h === 'title gr' || h === 'title_gr'),
-      title_en: headerCells.findIndex(
-        (h) => (h.includes('τιτλος τραγουδιου') && h.includes('eng')) || h === 'title en' || h === 'title_en'
-      ),
-      full_track: headerCells.findIndex((h) => h === 'ολοκληρο' || h === 'full track' || h === 'full_track'),
-      pot_pouri: headerCells.findIndex((h) => h.includes('ποτ') || h.includes('pot pouri') || h === 'pot_pouri'),
-      min: headerCells.findIndex((h) => h === 'min' || h === 'duration min'),
-      sec: headerCells.findIndex((h) => h === 'sec' || h === 'duration sec'),
-      isrc_code: headerCells.findIndex((h) => h.includes('isrc')),
-      composer_gr: headerCells.findIndex((h) => h === 'συνθετης' || h === 'composer gr' || h === 'composer_gr'),
-      composer_en: headerCells.findIndex((h) => h === 'composer en' || h === 'composer_en' || h.includes('δημιουργοι')),
-      songwriter_gr: headerCells.findIndex((h) => h === 'στιχουργος' || h === 'songwriter gr' || h === 'songwriter_gr'),
-      songwriter_en: headerCells.findIndex((h) => h === 'songwriter en' || h === 'songwriter_en'),
-      autodia_code: headerCells.findIndex((h) => h.includes('autodia')),
-      iswc_code: headerCells.findIndex((h) => h === 'iswc' || h === 'iswc code' || h === 'iswc_code'),
-      digital_web_link: headerCells.findIndex((h) => h.includes('youtube') || h.includes('digital web link')),
-      aepi_percent: headerCells.findIndex((h) => h === 'ποσοστο αεπι %' || h === 'ποσοστο αεπι%'),
-      final_aepi_percent: headerCells.findIndex((h) => h.includes('τελικο ποσοστο αεπι')),
-      singer_gr: headerCells.findIndex((h) => h === 'τραγουδιστης' || h === 'singer gr' || h === 'singer_gr'),
-      singer_en: headerCells.findIndex((h) => h === 'singer en' || h === 'singer_en'),
-      notes: headerCells.findIndex((h) => h === 'παρατηρησεις' || h === 'notes'),
-    };
+    let colIdx = buildColIdxMap(headerCells);
 
     for (let r = headerRowIdx + 1; r < rows.length; r++) {
       const row = Array.isArray(rows[r]) ? rows[r] : [];
-      const firstCell = cleanStr(row[0]);
-      const titleCell = colIdx.title_gr >= 0 ? cleanStr(row[colIdx.title_gr]) : '';
-      const titleEnCell = colIdx.title_en >= 0 ? cleanStr(row[colIdx.title_en]) : '';
-      const rowJoined = Array.from(row, cleanStr).filter(Boolean).join(' ');
+      const denseCells = Array.from(row, cleanStr);
+      const nonEmptyCells = denseCells.filter(Boolean);
+      if (nonEmptyCells.length === 0) continue;
 
-      if (!rowJoined) continue;
+      const rowJoined = nonEmptyCells.join(' ');
 
       if (
         /ΣΥΝΟΛΙΚΗ\s*ΔΙΑΡΚΕΙΑ|ΣΥΝΟΛΟ\s*ΟΛΟΚΛΗΡΩΝ|ΤΕΛΙΚΟ\s*ΠΟΣΟΣΤΟ|Έπαιξαν\s*οι\s*μουσικοί|Επαιξαν\s*οι\s*μουσικοί/i.test(
@@ -487,8 +695,34 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
         break;
       }
 
+      // Check for inline repeated song header (e.g. CD 2 table header inside same sheet)
+      const normalizedCells = denseCells.map((c) => normalizeHeader(c));
+      if (isSongHeaderRow(normalizedCells)) {
+        colIdx = buildColIdxMap(normalizedCells);
+        continue;
+      }
+
+      // Check for inline CD section divider row like "CD 2", "Disc 2", "Δίσκος 2"
+      if (nonEmptyCells.length <= 2) {
+        const dividerDisc = detectDiscNumberFromLabel(nonEmptyCells[0]);
+        if (dividerDisc !== null && !parseOptionalInt(colIdx.min >= 0 ? row[colIdx.min] : '')) {
+          currentDiscNumber = dividerDisc;
+          continue;
+        }
+      }
+
+      const firstCell = cleanStr(row[0]);
+      const titleCell = colIdx.title_gr >= 0 ? cleanStr(row[colIdx.title_gr]) : '';
+      const titleEnCell = colIdx.title_en >= 0 ? cleanStr(row[colIdx.title_en]) : '';
+
       if (!titleCell && !titleEnCell && !firstCell) continue;
       if (!titleCell && !titleEnCell) continue;
+
+      const rowDisc = colIdx.disc_number >= 0 ? parseDiscCell(row[colIdx.disc_number]) : null;
+      const effectiveDisc = rowDisc ?? currentDiscNumber;
+      if (rowDisc !== null) {
+        currentDiscNumber = rowDisc;
+      }
 
       const min = colIdx.min >= 0 ? parseOptionalInt(row[colIdx.min]) : null;
       const sec = colIdx.sec >= 0 ? parseOptionalInt(row[colIdx.sec]) : null;
@@ -499,7 +733,10 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
         album.cd_digital_playlist_link = digitalLink;
       }
 
+      const rawLyrics = colIdx.lyrics >= 0 ? cleanStr(row[colIdx.lyrics]) : '';
+
       const song: Song = {
+        disc_number: effectiveDisc,
         track_no: colIdx.track_no >= 0 ? cleanStr(row[colIdx.track_no]) : String(album.songs.length + 1),
         title_gr: titleCell,
         title_en: titleEnCell,
@@ -521,6 +758,7 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
         aepi_percent: colIdx.aepi_percent >= 0 ? parseOptionalFloat(row[colIdx.aepi_percent]) : null,
         final_aepi_percent: colIdx.final_aepi_percent >= 0 ? parseOptionalFloat(row[colIdx.final_aepi_percent]) : null,
         notes: colIdx.notes >= 0 ? cleanStr(row[colIdx.notes]) : '',
+        lyrics: rawLyrics,
         sort_order: album.songs.length,
       };
 
@@ -528,7 +766,6 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     }
   }
 
-  // Parse footer block (Musicians, Web Link CD, Category, Producer, Production, Print)
   let inMusiciansSection = false;
   for (let r = footerStartIdx; r < rows.length; r++) {
     const row = Array.isArray(rows[r]) ? rows[r] : [];
@@ -570,7 +807,6 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
         continue;
       }
 
-      // Check for "Instrument: Musician Name"
       const colonIdx = cell.indexOf(':');
       if (inMusiciansSection && colonIdx > 0) {
         const role = cell.slice(0, colonIdx).trim();
@@ -586,12 +822,10 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     }
   }
 
-  // If Producer wasn't labeled separately, fallback to production_company
   if (!album.producer && album.production_company) {
     album.producer = album.production_company;
   }
 
-  // Compute Album Time from tracks
   const stats = computeAlbumStats(album.songs);
   album.total_seconds = stats.totalSeconds;
   album.album_time = stats.formattedTime;
@@ -600,10 +834,148 @@ export function parseSpreadsheetRows(rows: unknown[][]): Album {
     album.musicians = [{ role: '', name: '', sort_order: 0 }];
   }
   if (album.songs.length === 0) {
-    album.songs = [createEmptySong(0)];
+    album.songs = [createEmptySong(0, defaultDiscNumber)];
   }
 
   return album;
+}
+
+function songsHaveIdenticalTracklist(a: Song[], b: Song[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      normalizeMatchText(a[i].title_gr) !== normalizeMatchText(b[i].title_gr) ||
+      normalizeMatchText(a[i].title_en) !== normalizeMatchText(b[i].title_en) ||
+      normalizeMatchCode(a[i].isrc_code) !== normalizeMatchCode(b[i].isrc_code)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Converts multiple sheets inside a single `.xlsx` or `.numbers` workbook into Album records,
+ * automatically merging `CD 1`, `CD 2`, `Disc 2`, ... tabs belonging to the same album
+ * while keeping distinct albums on separate sheets separate.
+ */
+export function parseWorkbookSheetsToAlbums(
+  sheets: Array<{ name: string; rows: unknown[][] }>
+): Array<{ album: Album; sheetName: string }> {
+  interface ParsedEntry {
+    album: Album;
+    sheetName: string;
+    sheetDisc: number | null;
+    hasSongs: boolean;
+  }
+
+  const parsedList: ParsedEntry[] = [];
+  for (const sheet of sheets) {
+    const sheetDisc = detectDiscNumberFromLabel(sheet.name);
+    const parsed = parseSpreadsheetRows(sheet.rows, sheetDisc || 1);
+    const realSongs = parsed.songs.filter((s) => s.title_gr.trim() || s.title_en.trim());
+    if (realSongs.length === 0 && !parsed.album_title && !parsed.catalog_number) {
+      continue;
+    }
+    if (!parsed.album_title && sheet.name && !sheetDisc) {
+      parsed.album_title = sheet.name;
+    }
+    if (sheetDisc && parsed.songs.every((s) => (s.disc_number || 1) === 1)) {
+      parsed.songs = parsed.songs.map((s) => ({ ...s, disc_number: sheetDisc }));
+    }
+    parsedList.push({
+      album: parsed,
+      sheetName: sheet.name,
+      sheetDisc,
+      hasSongs: realSongs.length > 0,
+    });
+  }
+
+  const merged: Array<{ album: Album; sheetNames: string[] }> = [];
+
+  for (const entry of parsedList) {
+    let target = merged.find((m) => areAlbumsIdentical(m.album, entry.album));
+
+    // Also merge an explicit CD 2 / Disc 2 sheet lacking its own catalog/barcode into previous album
+    if (!target && entry.sheetDisc && entry.sheetDisc >= 2 && !entry.album.catalog_number && !entry.album.barcode && merged.length > 0) {
+      target = merged[merged.length - 1];
+    }
+
+    if (target) {
+      // If exact same album + exact same tracklist was pasted twice in two tabs, avoid doubling identical songs
+      if (songsHaveIdenticalTracklist(target.album.songs, entry.album.songs) && !entry.sheetDisc) {
+        continue;
+      }
+
+      const maxExistingDisc = target.album.songs.reduce(
+        (m, s) => Math.max(m, s.disc_number || 1),
+        1
+      );
+      const nextDisc =
+        entry.sheetDisc && entry.sheetDisc > maxExistingDisc
+          ? entry.sheetDisc
+          : maxExistingDisc + 1;
+
+      const appendedSongs = entry.album.songs
+        .filter((s) => s.title_gr.trim() || s.title_en.trim())
+        .map((s, idx) => ({
+          ...s,
+          disc_number: entry.sheetDisc || (s.disc_number > 1 ? s.disc_number : nextDisc),
+          sort_order: target!.album.songs.length + idx,
+        }));
+
+      target.album.songs = [...target.album.songs, ...appendedSongs].map((s, idx) => ({
+        ...s,
+        sort_order: idx,
+      }));
+
+      // Fill any missing album-level metadata from subsequent CD sheets
+      if (!target.album.cd_digital_playlist_link && entry.album.cd_digital_playlist_link) {
+        target.album.cd_digital_playlist_link = entry.album.cd_digital_playlist_link;
+      }
+      if (!target.album.physical_product_web_link && entry.album.physical_product_web_link) {
+        target.album.physical_product_web_link = entry.album.physical_product_web_link;
+      }
+      if (!target.album.album_music_category && entry.album.album_music_category) {
+        target.album.album_music_category = entry.album.album_music_category;
+      }
+      if (!target.album.producer && entry.album.producer) {
+        target.album.producer = entry.album.producer;
+      }
+
+      // Merge unique musicians
+      const seenMusicians = new Set(
+        target.album.musicians.map((m) => `${normalizeMatchText(m.role)}|${normalizeMatchText(m.name)}`)
+      );
+      for (const m of entry.album.musicians) {
+        const key = `${normalizeMatchText(m.role)}|${normalizeMatchText(m.name)}`;
+        if ((m.role || m.name) && !seenMusicians.has(key)) {
+          seenMusicians.add(key);
+          target.album.musicians.push({ ...m, sort_order: target.album.musicians.length });
+        }
+      }
+
+      const stats = computeAlbumStats(target.album.songs);
+      target.album.total_seconds = stats.totalSeconds;
+      target.album.album_time = stats.formattedTime;
+      if (stats.discCount > 1 && /^cd$/i.test(target.album.format.trim())) {
+        target.album.format = `${stats.discCount} CD`;
+      }
+      if (entry.sheetName) {
+        target.sheetNames.push(entry.sheetName);
+      }
+    } else {
+      merged.push({
+        album: entry.album,
+        sheetNames: entry.sheetName ? [entry.sheetName] : [],
+      });
+    }
+  }
+
+  return merged.map((m) => ({
+    album: m.album,
+    sheetName: m.sheetNames.join(' + '),
+  }));
 }
 
 export function buildWorkbookMatrix(album: Album): (string | number | null)[][] {
@@ -634,6 +1006,7 @@ export function buildWorkbookMatrix(album: Album): (string | number | null)[][] 
 
   rows.push([
     'A/A',
+    'CD',
     'ΤΙΤΛΟΣ ΤΡΑΓΟΥΔΙΟΥ',
     'ΤΙΤΛΟΣ ΤΡΑΓΟΥΔΙΟΥ (eng)',
     'ΟΛΟΚΛΗΡΟ',
@@ -654,12 +1027,14 @@ export function buildWorkbookMatrix(album: Album): (string | number | null)[][] 
     'Singer EN',
     'Songwriter EN',
     'ΠΑΡΑΤΗΡΗΣΕΙΣ',
+    'ΣΤΙΧΟΙ (Lyrics)',
   ]);
 
   for (const s of album.songs) {
     const secs = computeSongSeconds(s.duration_min, s.duration_sec);
     rows.push([
       s.track_no || null,
+      s.disc_number || 1,
       s.title_gr,
       s.title_en,
       s.full_track ? 1 : null,
@@ -680,11 +1055,13 @@ export function buildWorkbookMatrix(album: Album): (string | number | null)[][] 
       s.singer_en,
       s.songwriter_en,
       s.notes,
+      s.lyrics || '',
     ]);
   }
 
   rows.push([
     'ΣΥΝΟΛΙΚΗ ΔΙΑΡΚΕΙΑ ΤΡΑΓΟΥΔΙΩΝ',
+    '',
     '',
     '',
     '',
@@ -697,11 +1074,13 @@ export function buildWorkbookMatrix(album: Album): (string | number | null)[][] 
     'ΣΥΝΟΛΟ ΟΛΟΚΛΗΡΩΝ & ΠΟΤ-ΠΟΥΡΙ',
     '',
     '',
+    '',
     stats.fullTrackCount,
     stats.potPouriCount,
   ]);
   rows.push([
     'ΤΕΛΙΚΟ ΠΟΣΟΣΤΟ ΑΕΠΙ ΑΝΑ CD',
+    '',
     '',
     '',
     '',
@@ -741,6 +1120,8 @@ export function buildWorkbookMatrix(album: Album): (string | number | null)[][] 
 
   if (activeMusicians.length === 0) {
     rows.push(['', '', '', `Κατηγορια: ${album.album_music_category || ''}`]);
+  } else if (activeMusicians.length === 1 && album.cd_digital_playlist_link) {
+    rows.push(['', '', '', `CD Digital Playlist link: ${album.cd_digital_playlist_link}`]);
   }
 
   rows.push([]);

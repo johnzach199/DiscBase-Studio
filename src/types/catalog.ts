@@ -7,6 +7,7 @@ export interface Musician {
 
 export interface Song {
   id?: number;
+  disc_number: number;
   track_no: string;
   title_gr: string;
   title_en: string;
@@ -28,6 +29,7 @@ export interface Song {
   aepi_percent: number | null;
   final_aepi_percent: number | null;
   notes: string;
+  lyrics: string;
   sort_order: number;
 }
 
@@ -75,6 +77,7 @@ export interface AlbumSummary {
   full_track_count: number;
   pot_pouri_count: number;
   musician_count: number;
+  disc_count?: number;
   updated_at?: string;
 }
 

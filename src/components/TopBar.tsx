@@ -36,7 +36,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const navItems: Array<{ id: ActiveTab; label: string }> = [
     { id: 'catalog', label: 'Catalog' },
     { id: 'editor', label: 'Album Sheet' },
-    { id: 'import', label: 'XLSX Import' },
+    { id: 'import', label: 'XLSX / Numbers' },
     { id: 'mysql', label: 'SQLite & MySQL' },
   ];
 

@@ -93,7 +93,14 @@ async function createWindow() {
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        shell.openExternal(parsed.toString());
+      }
+    } catch {
+      // Ignore invalid external URLs
+    }
     return { action: 'deny' };
   });
 

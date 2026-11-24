@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS album_musicians (
 CREATE TABLE IF NOT EXISTS songs (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   album_id INT UNSIGNED NOT NULL,
+  disc_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
   track_no VARCHAR(64) NOT NULL DEFAULT '',
   title_gr VARCHAR(512) NOT NULL DEFAULT '',
   title_en VARCHAR(512) NOT NULL DEFAULT '',
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS songs (
   aepi_percent DECIMAL(8,4) NULL DEFAULT NULL,
   final_aepi_percent DECIMAL(10,5) NULL DEFAULT NULL,
   notes TEXT,
+  lyrics LONGTEXT,
   sort_order INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   INDEX idx_songs_album (album_id),

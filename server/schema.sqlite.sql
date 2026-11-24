@@ -47,6 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_musicians_album ON album_musicians (album_id);
 CREATE TABLE IF NOT EXISTS songs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   album_id INTEGER NOT NULL,
+  disc_number INTEGER NOT NULL DEFAULT 1,
   track_no TEXT NOT NULL DEFAULT '',
   title_gr TEXT NOT NULL DEFAULT '',
   title_en TEXT NOT NULL DEFAULT '',
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS songs (
   aepi_percent REAL NULL DEFAULT NULL,
   final_aepi_percent REAL NULL DEFAULT NULL,
   notes TEXT DEFAULT '',
+  lyrics TEXT DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
 );

@@ -4,9 +4,17 @@ import path from 'node:path';
 import express from 'express';
 import * as XLSX from 'xlsx';
 import { CatalogDatabase } from './server/db';
+import { buildNumbersBuffer } from './server/numbersCodec';
 import { buildZipArchive, type ZipEntryInput } from './server/zipBuilder';
 import type { Album, MysqlConfig } from './src/types/catalog';
-import { buildWorkbookMatrix, parseSpreadsheetRows, validateAlbum } from './src/utils/catalogMath';
+import {
+  buildWorkbookMatrix,
+  createSampleTemplateAlbum,
+  parseDelimitedText,
+  parseSpreadsheetRows,
+  parseWorkbookSheetsToAlbums,
+  validateAlbum,
+} from './src/utils/catalogMath';
 
 function resolveAppPath(appRootOverride: string | undefined, ...segments: string[]): string {
   const baseRoot = appRootOverride || process.env.APP_ROOT_DIR || '';
@@ -261,7 +269,7 @@ export async function startAppServer(options?: {
     }
   });
 
-  // XLSX / TSV / CSV Parse & Batch Import
+  // XLSX / NUMBERS / TSV / CSV Parse & Batch Import
   app.post('/api/import/parse', (req, res) => {
     try {
       const parseSingleInput = (input: { base64?: string; text?: string; filename?: string }) => {
@@ -269,25 +277,22 @@ export async function startAppServer(options?: {
         if (input.base64) {
           const buffer = Buffer.from(input.base64, 'base64');
           const wb = XLSX.read(buffer, { type: 'buffer' });
-          const results: Array<{ album: Album; sheetName: string; filename: string }> = [];
+          const sheetInputs: Array<{ name: string; rows: unknown[][] }> = [];
           for (const sheetName of wb.SheetNames || []) {
             const sheet = wb.Sheets?.[sheetName];
             if (!sheet || !sheet['!ref']) continue;
             const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }) as unknown[][];
-            const parsed = parseSpreadsheetRows(rows);
-            if (!parsed.album_title && sheetName) {
-              parsed.album_title = sheetName;
-            }
-            if (parsed.songs.length > 0 || parsed.album_title || parsed.catalog_number) {
-              results.push({ album: parsed, sheetName, filename: fname });
-            }
+            sheetInputs.push({ name: sheetName, rows });
           }
-          return results;
+          const albums = parseWorkbookSheetsToAlbums(sheetInputs);
+          return albums.map((entry) => ({
+            album: entry.album,
+            sheetName: entry.sheetName,
+            filename: fname,
+          }));
         }
         if (input.text) {
-          const lines = input.text.split(/\r?\n/);
-          const delimiter = lines.some((l) => l.includes('\t')) ? '\t' : ',';
-          const rows = lines.map((line) => line.split(delimiter));
+          const rows = parseDelimitedText(input.text);
           return [{ album: parseSpreadsheetRows(rows), sheetName: '', filename: fname }];
         }
         return [];
@@ -327,7 +332,11 @@ export async function startAppServer(options?: {
 
   app.post('/api/import/commit', async (req, res) => {
     try {
-      const { albums } = req.body as { albums: Album[] };
+      const { albums, replaceExisting, replaceIndices } = req.body as {
+        albums: Album[];
+        replaceExisting?: boolean;
+        replaceIndices?: number[];
+      };
       if (!Array.isArray(albums) || albums.length === 0) {
         res.status(400).json({ error: 'No albums provided to import.' });
         return;
@@ -343,8 +352,11 @@ export async function startAppServer(options?: {
         }
       }
 
-      const result = await db.importAlbumsDeduplicated(albums);
-      if (result.imported.length === 0 && result.failed.length > 0) {
+      const result = await db.importAlbumsDeduplicated(albums, {
+        replaceExisting,
+        replaceIndices,
+      });
+      if (result.imported.length === 0 && result.replaced.length === 0 && result.failed.length > 0) {
         res.status(500).json({
           error: result.failed[0].error || 'Failed to save imported albums',
           failedCount: result.failed.length,
@@ -353,36 +365,78 @@ export async function startAppServer(options?: {
         return;
       }
 
+      const savedAll = [...result.imported, ...result.replaced];
       res.status(result.imported.length > 0 ? 201 : 200).json({
         importedCount: result.imported.length,
+        replacedCount: result.replaced.length,
         skippedCount: result.skipped.length,
         failedCount: result.failed.length,
         skippedAlbums: result.skipped,
         failedAlbums: result.failed,
-        albums: result.imported,
+        replacedAlbums: result.replaced,
+        albums: savedAll,
       });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Import failed' });
     }
   });
 
-  // Export single album as XLSX matching screenshot layout
+  // Download sample import template (.xlsx or .numbers) with multi-CD + timestamped lyrics
+  app.get('/api/import/template', (req, res) => {
+    try {
+      const format = String(req.query.format || 'xlsx').toLowerCase() === 'numbers' ? 'numbers' : 'xlsx';
+      const sample = createSampleTemplateAlbum();
+      const matrix = buildWorkbookMatrix(sample);
+
+      if (format === 'numbers') {
+        const buf = buildNumbersBuffer(matrix, 'Template');
+        res.setHeader('Content-Type', 'application/vnd.apple.numbers');
+        res.setHeader('Content-Disposition', 'attachment; filename="discbase_import_template.numbers"');
+        res.send(buf);
+        return;
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(matrix);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Template');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="discbase_import_template.xlsx"');
+      res.send(buf);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to build template' });
+    }
+  });
+
+  // Export single album as XLSX or Apple .numbers
   app.get('/api/albums/:id/export', async (req, res) => {
     try {
       const id = Number(req.params.id);
+      const format = String(req.query.format || 'xlsx').toLowerCase() === 'numbers' ? 'numbers' : 'xlsx';
       const album = await db.getAlbum(id);
       if (!album) {
         res.status(404).json({ error: 'Album not found' });
         return;
       }
       const matrix = buildWorkbookMatrix(album);
+      const safeSheetName = (album.catalog_number || album.album_title || 'Album')
+        .slice(0, 31)
+        .replace(/[\\/?*[\]]/g, '_');
+      const safeFile = (album.catalog_number || `album_${id}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      if (format === 'numbers') {
+        const buf = buildNumbersBuffer(matrix, safeSheetName || 'Album');
+        res.setHeader('Content-Type', 'application/vnd.apple.numbers');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFile}.numbers"`);
+        res.send(buf);
+        return;
+      }
+
       const ws = XLSX.utils.aoa_to_sheet(matrix);
       const wb = XLSX.utils.book_new();
-      const safeSheetName = (album.catalog_number || album.album_title || 'Album').slice(0, 31).replace(/[\\/?*[\]]/g, '_');
       XLSX.utils.book_append_sheet(wb, ws, safeSheetName || 'Album');
       const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 
-      const safeFile = (album.catalog_number || `album_${id}`).replace(/[^a-zA-Z0-9_-]/g, '_');
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${safeFile}.xlsx"`);
       res.send(buf);

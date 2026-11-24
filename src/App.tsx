@@ -146,19 +146,19 @@ export default function App() {
     }
   };
 
-  const handleExportAlbum = (id: number) => {
+  const handleExportAlbum = (id: number, format: 'xlsx' | 'numbers' = 'xlsx') => {
     const link = document.createElement('a');
-    link.href = `/api/albums/${id}/export`;
+    link.href = `/api/albums/${id}/export?format=${format}`;
     link.download = '';
     document.body.appendChild(link);
     link.click();
     link.remove();
   };
 
-  const handleOpenParsedInEditor = (album: Album) => {
+  const handleOpenParsedInEditor = (album: Album, replaceExistingId?: number) => {
     setSaveMessage(null);
     setSaveError(null);
-    setEditingAlbum({ ...album, id: undefined });
+    setEditingAlbum({ ...album, id: replaceExistingId });
     setActiveTab('editor');
   };
 
@@ -211,7 +211,7 @@ export default function App() {
             onChange={setEditingAlbum}
             onSave={handleSaveAlbum}
             onBackToCatalog={() => setActiveTab('catalog')}
-            onExportXlsx={handleExportAlbum}
+            onExportAlbum={handleExportAlbum}
           />
         )}
 
