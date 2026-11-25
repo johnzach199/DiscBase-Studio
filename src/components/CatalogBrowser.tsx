@@ -11,6 +11,7 @@ interface CatalogBrowserProps {
   onOpenAlbum: (id: number) => void;
   onDeleteAlbum: (id: number) => Promise<void>;
   onExportAlbum: (id: number, format: 'xlsx' | 'numbers') => void;
+  onExportSearchResults: (categoryFilter: string, formatFilter: string) => void;
   onNewAlbum: () => void;
   onGoToImport: () => void;
   onGoToMysql: () => void;
@@ -25,6 +26,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
   onOpenAlbum,
   onDeleteAlbum,
   onExportAlbum,
+  onExportSearchResults,
   onNewAlbum,
   onGoToImport,
   onGoToMysql,
@@ -173,7 +175,7 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search catalog #, barcode, album title, artist, or song title / ISRC..."
+            placeholder="Search catalog #, barcode, album title, artist, song title, ISRC, composer, singer, or musician..."
             className="w-full pl-9 pr-3 py-2 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
           />
         </div>
@@ -212,6 +214,17 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
               </option>
             ))}
           </select>
+
+          <button
+            type="button"
+            disabled={filteredAlbums.length === 0}
+            onClick={() => onExportSearchResults(categoryFilter, formatFilter)}
+            title="Export the currently displayed search/filter results to Excel (.xlsx)"
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-sm font-medium rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 disabled:opacity-45 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <Download className="w-4 h-4 shrink-0" />
+            <span>Export Results (.xlsx)</span>
+          </button>
         </div>
       </div>
 

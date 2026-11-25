@@ -442,7 +442,7 @@ function writeTileRow(
   numCols: number,
   sstIndex: Map<string, number>
 ): number {
-  const offsetByteLen = Math.max(tri[7]?.[0]?.data?.length || 20, numCols * 2);
+  const offsetByteLen = Math.max(tri[7]?.[0]?.data?.length || 510, numCols * 2);
   const newOffsets = new Uint8Array(offsetByteLen);
   const oldOffsets = new Uint8Array(offsetByteLen);
   newOffsets.fill(0xff);
@@ -450,11 +450,9 @@ function writeTileRow(
 
   const dvNew = u8toDataview(newOffsets);
   const dvOld = u8toDataview(oldOffsets);
-  let lastOffset = 0;
-  let lastOldOffset = 0;
-  const newPayloads: Uint8Array[] = [];
-  const oldPayloads: Uint8Array[] = [];
-  let cnt = 0;
+  const entries: Array<{ col: number; newBuf: Uint8Array; oldBuf: Uint8Array }> = [];
+  let totalNewLen = 0;
+  let totalOldLen = 0;
 
   for (let c = 0; c < numCols; c++) {
     const val = row[c];
@@ -472,13 +470,37 @@ function writeTileRow(
 
     const newBuf = writeNewStorage(cellObj, sstIndex);
     const oldBuf = writeOldStorage(cellObj, sstIndex);
+    entries.push({ col: c, newBuf, oldBuf });
+    totalNewLen += newBuf.length;
+    totalOldLen += oldBuf.length;
+  }
 
-    if (lastOffset > 65530 || lastOldOffset > 65530) {
+  const useWideOffsets = totalNewLen > 65530 || totalOldLen > 65530;
+  const pad4 = (buf: Uint8Array): Uint8Array => {
+    const rem = buf.length & 3;
+    if (rem === 0) return buf;
+    const padded = new Uint8Array(buf.length + (4 - rem));
+    padded.set(buf);
+    return padded;
+  };
+
+  let lastOffset = 0;
+  let lastOldOffset = 0;
+  const newPayloads: Uint8Array[] = [];
+  const oldPayloads: Uint8Array[] = [];
+  let cnt = 0;
+
+  for (const item of entries) {
+    const newBuf = useWideOffsets ? pad4(item.newBuf) : item.newBuf;
+    const oldBuf = useWideOffsets ? pad4(item.oldBuf) : item.oldBuf;
+    const encodedNewOffset = useWideOffsets ? lastOffset / 4 : lastOffset;
+    const encodedOldOffset = useWideOffsets ? lastOldOffset / 4 : lastOldOffset;
+    if (encodedNewOffset >= 65535 || encodedOldOffset >= 65535) {
       break;
     }
 
-    dvNew.setUint16(c * 2, lastOffset, true);
-    dvOld.setUint16(c * 2, lastOldOffset, true);
+    dvNew.setUint16(item.col * 2, encodedNewOffset, true);
+    dvOld.setUint16(item.col * 2, encodedOldOffset, true);
     newPayloads.push(newBuf);
     oldPayloads.push(oldBuf);
     lastOffset += newBuf.length;
@@ -487,11 +509,16 @@ function writeTileRow(
   }
 
   tri[2][0].data = writeVarint49(cnt);
+  tri[5] = [{ type: 0, data: writeVarint49(5) }];
   tri[6] = [{ type: 2, data: u8concat(newPayloads) }];
   tri[7] = [{ type: 2, data: newOffsets }];
   tri[3] = [{ type: 2, data: u8concat(oldPayloads) }];
   tri[4] = [{ type: 2, data: oldOffsets }];
-  delete tri[8];
+  if (useWideOffsets) {
+    tri[8] = [{ type: 0, data: writeVarint49(1) }];
+  } else {
+    delete tri[8];
+  }
   return cnt;
 }
 
@@ -511,19 +538,24 @@ export function buildNumbersBuffer(
     normalizedRows.reduce((max, row) => Math.max(max, row.length), 1)
   );
 
-  // Build Shared String Table
-  const sst: string[] = ['~Sh33tJ5~'];
+  // Build 1-based Shared String Table (Apple Numbers reserves key 0)
+  const sst: string[] = [];
   const sstIndex = new Map<string, number>();
-  sstIndex.set('~Sh33tJ5~', 0);
+  const sstRefCounts: number[] = [0];
 
   for (const row of normalizedRows) {
     for (let c = 0; c < numCols; c++) {
       const val = row[c];
       if (val !== null && val !== undefined && val !== '' && typeof val !== 'number' && typeof val !== 'boolean') {
         const s = String(val);
-        if (!sstIndex.has(s)) {
-          sstIndex.set(s, sst.length);
+        let id = sstIndex.get(s);
+        if (id === undefined) {
+          id = sst.length + 1;
+          sstIndex.set(s, id);
           sst.push(s);
+          sstRefCounts[id] = 1;
+        } else {
+          sstRefCounts[id] = (sstRefCounts[id] || 0) + 1;
         }
       }
     }
@@ -582,7 +614,42 @@ export function buildNumbersBuffer(
 
   pb[6][0].data = writeVarint49(numRows);
   pb[7][0].data = writeVarint49(numCols);
-  delete pb[46];
+
+  // Populate ColumnRowUIDMapArchive (in the same CalculationEngine.iwa archive set) so Numbers 14-16 maps all rows/cols
+  const cruidsRef = pb[46]?.[0]?.data ? parseTspReference(pb[46][0].data) : null;
+  if (cruidsRef) {
+    const cruidsPacket = modelLoaded.archives.find((a) => a.id === cruidsRef);
+    if (cruidsPacket) {
+      const cruids = parseShallow(cruidsPacket.messages[0].data);
+      cruids[1] = [];
+      cruids[2] = [];
+      cruids[3] = [];
+      for (let c = 0; c < numCols; c++) {
+        const uuid: ProtoMessage = [];
+        const uidVal = writeVarint49(c + 420690);
+        uuid[1] = [{ type: 0, data: uidVal }];
+        uuid[2] = [{ type: 0, data: uidVal }];
+        cruids[1].push({ type: 2, data: writeShallow(uuid) });
+        const idxBytes = writeVarint49(c);
+        cruids[2].push({ type: 0, data: idxBytes });
+        cruids[3].push({ type: 0, data: idxBytes });
+      }
+      cruids[4] = [];
+      cruids[5] = [];
+      cruids[6] = [];
+      for (let r = 0; r < numRows; r++) {
+        const uuid: ProtoMessage = [];
+        const uidVal = writeVarint49(r + 726270);
+        uuid[1] = [{ type: 0, data: uidVal }];
+        uuid[2] = [{ type: 0, data: uidVal }];
+        cruids[4].push({ type: 2, data: writeShallow(uuid) });
+        const idxBytes = writeVarint49(r);
+        cruids[5].push({ type: 0, data: idxBytes });
+        cruids[6].push({ type: 0, data: idxBytes });
+      }
+      cruidsPacket.messages[0].data = writeShallow(cruids);
+    }
+  }
 
   const store = parseShallow(pb[4][0].data);
   store[7][0].data = writeVarint49(numRows);
@@ -626,15 +693,17 @@ export function buildNumbersBuffer(
     colHeaderLoaded.entry.size = compressed.length;
   }
 
-  // Update Shared String Table
+  // Update Shared String Table (1-based IDs + accurate nextListID + reference counts)
   const sstRef = parseTspReference(store[4][0].data);
   const sstLoaded = loadEntry(sstRef);
   {
     const sstData = parseShallow(sstLoaded.packet.messages[0].data);
+    sstData[2] = [{ type: 0, data: writeVarint49(sst.length + 1) }];
     sstData[3] = sst.map((str, i) => {
+      const id = i + 1;
       const entryMsg: ProtoMessage = [];
-      entryMsg[1] = [{ type: 0, data: writeVarint49(i) }];
-      entryMsg[2] = [{ type: 0, data: writeVarint49(1) }];
+      entryMsg[1] = [{ type: 0, data: writeVarint49(id) }];
+      entryMsg[2] = [{ type: 0, data: writeVarint49(sstRefCounts[id] || 1) }];
       entryMsg[3] = [{ type: 2, data: encodeUtf8(str) }];
       return { type: 2, data: writeShallow(entryMsg) };
     });
@@ -644,7 +713,7 @@ export function buildNumbersBuffer(
     sstLoaded.entry.size = compressed.length;
   }
 
-  // Update Tile(s)
+  // Update Tile(s) preserving storage_version = 5 (tileData[6]) and storage = 1 (tileData[7])
   const tile = parseShallow(store[3][0].data);
   const tileEntryTemplate = tile[1][0];
   delete tile[2];
@@ -654,7 +723,6 @@ export function buildNumbersBuffer(
   const tileLoaded = loadEntry(tileRef);
   {
     const tileData = parseShallow(tileLoaded.packet.messages[0].data);
-    delete tileData[6];
     const rowLoadTemplate = new Uint8Array(tileData[5][0].data);
     tileData[5] = [];
     let cellCount = 0;
@@ -668,6 +736,8 @@ export function buildNumbersBuffer(
     tileData[2] = [{ type: 0, data: writeVarint49(numRows) }];
     tileData[3] = [{ type: 0, data: writeVarint49(cellCount) }];
     tileData[4] = [{ type: 0, data: writeVarint49(numRows) }];
+    tileData[6] = [{ type: 0, data: writeVarint49(5) }];
+    tileData[7] = [{ type: 0, data: writeVarint49(1) }];
     tileLoaded.packet.messages[0].data = writeShallow(tileData);
     const compressed = compressIwaFile(writeIwaFile(tileLoaded.archives));
     tileLoaded.entry.content = compressed as unknown as number[];
@@ -685,3 +755,85 @@ export function buildNumbersBuffer(
   const zipBytes = CFB_LIB.write(cfb, { type: 'buffer', fileType: 'zip', compression: true });
   return Buffer.from(zipBytes);
 }
+
+export interface NumbersInternalsSummary {
+  sheetName: string;
+  numRows: number;
+  numCols: number;
+  cruidsPresent: boolean;
+  cruidsColCount: number;
+  cruidsRowCount: number;
+  sstNextListId: number;
+  sstCount: number;
+  sstMinId: number;
+  tileStorageVersion: number | null;
+  tileStorageFlag: number | null;
+  tileRowVersions: number[];
+  wideOffsetRowCount: number;
+}
+
+export function inspectNumbersInternals(buf: Buffer): NumbersInternalsSummary {
+  const cfb = CFB_LIB.read(buf, { type: 'buffer' });
+  const archivesById = new Map<number, IwaArchive>();
+  cfb.FileIndex.forEach((fi: { type: number; name: string; content: number[] | Uint8Array }, idx: number) => {
+    if (fi.type !== 2 || !/\.iwa$/i.test(fi.name)) return;
+    const raw = decompressIwaFile(new Uint8Array(fi.content));
+    for (const ar of parseIwaFile(raw)) {
+      archivesById.set(ar.id, ar);
+    }
+  });
+
+  const doc = parseShallow(archivesById.get(1)!.messages[0].data);
+  const sheetId = parseTspReference(doc[1][0].data);
+  const sheetPb = parseShallow(archivesById.get(sheetId)!.messages[0].data);
+  const sheetName = sheetPb[1]?.[0]?.data ? new TextDecoder().decode(sheetPb[1][0].data) : '';
+
+  const tableInfoId = parseTspReference(sheetPb[2][0].data);
+  const tableInfoPb = parseShallow(archivesById.get(tableInfoId)!.messages[0].data);
+  const tableModelId = parseTspReference(tableInfoPb[2][0].data);
+  const modelPb = parseShallow(archivesById.get(tableModelId)!.messages[0].data);
+
+  const numRows = varintToI32(modelPb[6][0].data);
+  const numCols = varintToI32(modelPb[7][0].data);
+
+  const cruidsRef = modelPb[46]?.[0]?.data ? parseTspReference(modelPb[46][0].data) : null;
+  const cruidsArchive = cruidsRef ? archivesById.get(cruidsRef) : undefined;
+  const cruidsPb = cruidsArchive ? parseShallow(cruidsArchive.messages[0].data) : null;
+
+  const store = parseShallow(modelPb[4][0].data);
+  const sstRef = parseTspReference(store[4][0].data);
+  const sstPb = parseShallow(archivesById.get(sstRef)!.messages[0].data);
+  const sstIds = (sstPb[3] || []).map((entry) => varintToI32(parseShallow(entry.data)[1][0].data));
+
+  const tileWrap = parseShallow(store[3][0].data);
+  const tl = parseShallow(tileWrap[1][0].data);
+  const tileRef = parseTspReference(tl[2][0].data);
+  const tilePb = parseShallow(archivesById.get(tileRef)!.messages[0].data);
+
+  const tileRowVersions: number[] = [];
+  let wideOffsetRowCount = 0;
+  for (const rowField of tilePb[5] || []) {
+    const tri = parseShallow(rowField.data);
+    tileRowVersions.push(tri[5]?.[0] ? varintToI32(tri[5][0].data) : 0);
+    if (tri[8]?.[0] && varintToI32(tri[8][0].data) === 1) {
+      wideOffsetRowCount++;
+    }
+  }
+
+  return {
+    sheetName,
+    numRows,
+    numCols,
+    cruidsPresent: Boolean(cruidsPb),
+    cruidsColCount: cruidsPb?.[1]?.length ?? 0,
+    cruidsRowCount: cruidsPb?.[4]?.length ?? 0,
+    sstNextListId: sstPb[2]?.[0] ? varintToI32(sstPb[2][0].data) : 0,
+    sstCount: sstIds.length,
+    sstMinId: sstIds.length > 0 ? Math.min(...sstIds) : 0,
+    tileStorageVersion: tilePb[6]?.[0] ? varintToI32(tilePb[6][0].data) : null,
+    tileStorageFlag: tilePb[7]?.[0] ? varintToI32(tilePb[7][0].data) : null,
+    tileRowVersions,
+    wideOffsetRowCount,
+  };
+}
+

@@ -22,34 +22,50 @@ test('CatalogDatabase initializes SQLite 3 file, supports CRUD & search, and per
     const header = fs.readFileSync(status.sqlitePath).subarray(0, 16).toString('utf-8');
     assert.equal(header, 'SQLite format 3\u0000');
 
-    // Create a new album with Greek & English metadata + song ISRC
+    // Create a new album with Greek & English metadata + song ISRC + musician tracks
     const draft = createEmptyAlbum();
     draft.catalog_number = 'GM 9999';
     draft.barcode = '5205299999999';
     draft.album_title = 'ΔΟΚΙΜΑΣΤΙΚΟΣ ΔΙΣΚΟΣ SQLITE';
     draft.album_artist = 'ΔΟΚΙΜΗ';
-    draft.songs[0].title_gr = 'ΠΡΩΤΟ ΤΡΑΓΟΥΔΙ';
+    draft.songs[0].title_gr = 'ΠΡΩΤΟ ΤΡΑΓΟΥΔΙ ΚΑΨΑΛΗΣ';
     draft.songs[0].title_en = 'First Song';
+    draft.songs[0].singer_gr = 'ΚΑΨΑΛΗΣ';
     draft.songs[0].duration_min = 4;
     draft.songs[0].duration_sec = 15;
     draft.songs[0].isrc_code = 'GRGM12699901';
-    draft.musicians = [{ role: 'Κλαρίνο', name: 'ΓΙΩΡΓΟΣ', sort_order: 0 }];
+    draft.musicians = [
+      { role: 'Κλαρίνο', name: 'ΓΙΩΡΓΟΣ', tracks: '1,3,5,6α,7', sort_order: 0 },
+      { role: 'Βιολί', name: 'ΜΑΡΙΑ', tracks: '', sort_order: 1 },
+    ];
 
     const created = await db1.createAlbum(draft);
     assert.ok(created.id && created.id > 0);
     assert.equal(created.total_seconds, 255);
     assert.equal(created.album_time, '04:15');
-    assert.equal(created.musicians.length, 1);
+    assert.equal(created.musicians.length, 2);
+    assert.equal(created.musicians[0].tracks, '1,3,5,6α,7');
+    assert.equal(created.musicians[1].tracks, null);
 
-    // Search by song ISRC
+    // Search by song ISRC, song title (Greek case/diacritics), and musician name
     const isrcHits = await db1.listAlbums('GRGM12699901');
     assert.equal(isrcHits.length, 1);
     assert.equal(isrcHits[0].catalog_number, 'GM 9999');
 
+    const greekHits = await db1.listAlbums('καψαλης');
+    assert.equal(greekHits.length, 1);
+    assert.equal(greekHits[0].catalog_number, 'GM 9999');
+
+    const titleHits = await db1.listAlbums('πρωτο τραγουδι');
+    assert.equal(titleHits.length, 1);
+    assert.equal(titleHits[0].catalog_number, 'GM 9999');
+
     // Update album
     created.album_title = 'ΕΝΗΜΕΡΩΜΕΝΟΣ ΔΙΣΚΟΣ';
+    created.musicians[0].tracks = '1,2';
     const updated = await db1.updateAlbum(created.id!, created);
     assert.equal(updated?.album_title, 'ΕΝΗΜΕΡΩΜΕΝΟΣ ΔΙΣΚΟΣ');
+    assert.equal(updated?.musicians[0].tracks, '1,2');
 
     // Re-open database from disk to verify persistence
     const db2 = new CatalogDatabase(tmpDir);
@@ -57,6 +73,8 @@ test('CatalogDatabase initializes SQLite 3 file, supports CRUD & search, and per
     const loaded = await db2.getAlbum(created.id!);
     assert.equal(loaded?.album_title, 'ΕΝΗΜΕΡΩΜΕΝΟΣ ΔΙΣΚΟΣ');
     assert.equal(loaded?.songs[0].isrc_code, 'GRGM12699901');
+    assert.equal(loaded?.musicians[0].tracks, '1,2');
+    assert.equal(loaded?.musicians[1].tracks, null);
 
     // Export downloadable .sqlite bytes
     const dl = db2.getSqliteFileForDownload();

@@ -16,13 +16,14 @@ import {
   deduplicateAlbumBatch,
   findDuplicateAlbum,
   formatSecondsAsTime,
+  matchesAlbumSearch,
   parseDelimitedText,
   parseSpreadsheetRows,
   parseWorkbookSheetsToAlbums,
   safeHttpUrl,
   validateAlbum,
 } from './catalogMath';
-import { buildNumbersBuffer } from '../../server/numbersCodec';
+import { buildNumbersBuffer, inspectNumbersInternals } from '../../server/numbersCodec';
 import { CatalogDatabase } from '../../server/db';
 
 test('computeSongSeconds and formatSecondsAsTime compute durations accurately', () => {
@@ -110,7 +111,10 @@ test('buildWorkbookMatrix round-trips through parseSpreadsheetRows cleanly', () 
   album.album_music_category = 'Δημοτικα';
   album.producer = 'TEST PRODUCER';
   album.physical_product_web_link = 'https://example.com/cd';
-  album.musicians = [{ role: 'Κλαρίνο', name: 'ΚΩΣΤΑΣ', sort_order: 0 }];
+  album.musicians = [
+    { role: 'Κλαρίνο', name: 'ΚΩΣΤΑΣ', tracks: '1,3,5,6α,7', sort_order: 0 },
+    { role: 'Βιολί', name: 'ΝΙΚΟΣ', tracks: null, sort_order: 1 },
+  ];
 
   const s1 = createEmptySong(0);
   s1.track_no = '1';
@@ -133,6 +137,9 @@ test('buildWorkbookMatrix round-trips through parseSpreadsheetRows cleanly', () 
   assert.equal(parsed.songs[0].title_gr, 'ΤΡΑΓΟΥΔΙ 1');
   assert.equal(parsed.songs[0].total_seconds, 195);
   assert.equal(parsed.musicians[0].role, 'Κλαρίνο');
+  assert.equal(parsed.musicians[0].tracks, '1,3,5,6α,7');
+  assert.equal(parsed.musicians[1].role, 'Βιολί');
+  assert.equal(parsed.musicians[1].tracks, null);
 });
 
 test('areAlbumsIdentical, findDuplicateAlbum, and deduplicateAlbumBatch prevent identical releases', () => {
@@ -370,6 +377,17 @@ test('Apple .numbers codec round-trips 23-column multi-CD album with full timest
   const numbersBuffer = buildNumbersBuffer(matrix, 'GM 0000');
   assert.ok(numbersBuffer.length > 500);
 
+  const internals = inspectNumbersInternals(numbersBuffer);
+  assert.equal(internals.sheetName, 'GM 0000');
+  assert.equal(internals.cruidsPresent, true);
+  assert.equal(internals.cruidsColCount, internals.numCols);
+  assert.equal(internals.cruidsRowCount, internals.numRows);
+  assert.equal(internals.sstMinId, 1);
+  assert.equal(internals.sstNextListId, internals.sstCount + 1);
+  assert.equal(internals.tileStorageVersion, 5);
+  assert.equal(internals.tileStorageFlag, 1);
+  assert.ok(internals.tileRowVersions.every((v) => v === 5));
+
   const xlsxMod =
     (XLSX as unknown as { default?: typeof XLSX }).default?.read
       ? (XLSX as unknown as { default: typeof XLSX }).default
@@ -390,8 +408,53 @@ test('Apple .numbers codec round-trips 23-column multi-CD album with full timest
   assert.equal(parsed.songs[0].disc_number, 1);
   assert.equal(parsed.songs[1].disc_number, 2);
   assert.equal(parsed.songs[0].lyrics, fullPromptLyrics);
+  assert.equal(parsed.musicians[0].tracks, '1,2');
   assert.equal(parsed.cd_digital_playlist_link, sample.cd_digital_playlist_link);
   assert.equal(parsed.physical_product_web_link, sample.physical_product_web_link);
+});
+
+test('matchesAlbumSearch matches Greek diacritics/case, song titles, ISRCs, composers, lyrics, and musicians', () => {
+  const album = createEmptyAlbum();
+  album.catalog_number = 'GM 4400';
+  album.barcode = '5205299044002';
+  album.album_title = 'ΠΑΡΑΔΟΣΙΑΚΑ ΤΡΑΓΟΥΔΙΑ';
+  album.album_artist = 'ΔΙΑΦΟΡΟΙ';
+  album.musicians = [{ role: 'Κλαρίνο', name: 'ΜΑΚΗΣ ΚΑΨΑΛΗΣ', tracks: '1,3,5,6α,7', sort_order: 0 }];
+  album.songs[0].title_gr = 'ΜΑΝΟΥΛΑ ΜΟΥ ΓΛΥΚΙΑ';
+  album.songs[0].title_en = 'Sweet Mother';
+  album.songs[0].isrc_code = 'GR-GM1-26-00440';
+  album.songs[0].iswc_code = 'T-123.456.789-0';
+  album.songs[0].singer_gr = 'ΓΙΩΡΓΟΣ ΚΑΨΑΛΗΣ';
+  album.songs[0].composer_gr = 'ΠΑΡΑΔΟΣΙΑΚΟ';
+  album.songs[0].lyrics = '0:10\n[μουσική]\n0:22\nΣτο βουνό ψηλά';
+
+  assert.equal(matchesAlbumSearch(album, 'καψαλης'), true);
+  assert.equal(matchesAlbumSearch(album, 'Καψάλης'), true);
+  assert.equal(matchesAlbumSearch(album, 'μανουλα μου'), true);
+  assert.equal(matchesAlbumSearch(album, 'Sweet Mother'), true);
+  assert.equal(matchesAlbumSearch(album, 'GRGM12600440'), true);
+  assert.equal(matchesAlbumSearch(album, 'GR-GM1-26-00440'), true);
+  assert.equal(matchesAlbumSearch(album, 'παραδοσιακο'), true);
+  assert.equal(matchesAlbumSearch(album, 'βουνο ψηλα'), true);
+  assert.equal(matchesAlbumSearch(album, '6α'), true);
+  assert.equal(matchesAlbumSearch(album, 'ΑΝΥΠΑΡΚΤΟΣ ΟΡΟΣ'), false);
+});
+
+test('Apple .numbers codec enables wide_offsets cleanly for wide rows exceeding 65530 bytes', () => {
+  const hugeCols = 4200; // 4200 * 16 bytes = 67200 bytes > 65530 bytes
+  const wideRow = Array.from({ length: hugeCols }, (_, i) => `val-${i}`);
+  const buf = buildNumbersBuffer([wideRow], 'Wide Row');
+  const internals = inspectNumbersInternals(buf);
+  assert.equal(internals.wideOffsetRowCount, 1);
+
+  const xlsxMod =
+    (XLSX as unknown as { default?: typeof XLSX }).default?.read
+      ? (XLSX as unknown as { default: typeof XLSX }).default
+      : XLSX;
+  const wb = xlsxMod.read(buf, { type: 'buffer' });
+  const rows = xlsxMod.utils.sheet_to_json<string[]>(wb.Sheets['Wide Row'], { header: 1 });
+  assert.equal(rows[0][0], 'val-0');
+  assert.equal(rows[0][hugeCols - 1], `val-${hugeCols - 1}`);
 });
 
 test('CatalogDatabase SQLite supports replace-existing deduplication and migrates legacy DB missing disc_number & lyrics', async () => {

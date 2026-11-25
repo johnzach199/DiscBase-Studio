@@ -5,6 +5,7 @@ import express from 'express';
 import * as XLSX from 'xlsx';
 import { CatalogDatabase } from './server/db';
 import { buildNumbersBuffer } from './server/numbersCodec';
+import { VersionService } from './server/versionService';
 import { buildZipArchive, type ZipEntryInput } from './server/zipBuilder';
 import type { Album, MysqlConfig } from './src/types/catalog';
 import {
@@ -48,11 +49,55 @@ export async function startAppServer(options?: {
 
   const db = new CatalogDatabase(options?.dataDir);
   await db.initialize();
+  const versionService = new VersionService({
+    dataDir: options?.dataDir,
+    appRoot: options?.appRoot,
+  });
 
   // Health & DB Status
   app.get('/api/health', async (_req, res) => {
     const status = await db.getDbStatus();
-    res.json({ ok: true, status });
+    res.json({ ok: true, status, version: versionService.getCurrentVersion() });
+  });
+
+  // App Version & Update Checks
+  app.get('/api/version', (_req, res) => {
+    res.json(versionService.getVersionSummary());
+  });
+
+  app.get('/api/version/check', async (req, res) => {
+    try {
+      const force = req.query.force === '1' || req.query.force === 'true';
+      const result = await versionService.checkLatestVersion({ force });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({
+        currentVersion: versionService.getCurrentVersion(),
+        latestVersion: null,
+        isOutdated: false,
+        status: 'error',
+        repo: versionService.getConfig().repo,
+        checkOnStartup: versionService.getConfig().checkOnStartup,
+        checkedAt: new Date().toISOString(),
+        error: err instanceof Error ? err.message : 'Version check failed',
+      });
+    }
+  });
+
+  app.post('/api/version/config', async (req, res) => {
+    try {
+      const body = req.body as { repo?: string; checkOnStartup?: boolean };
+      const config = versionService.saveConfig({
+        repo: body?.repo,
+        checkOnStartup: body?.checkOnStartup,
+      });
+      const checkResult = await versionService.checkLatestVersion({ force: true });
+      res.json({ config, checkResult });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Failed to save version settings',
+      });
+    }
   });
 
   app.get('/api/db/status', async (_req, res) => {
@@ -167,7 +212,7 @@ export async function startAppServer(options?: {
     }
   });
 
-  // Albums CRUD
+  // Albums CRUD & Search Export
   app.get('/api/albums', async (req, res) => {
     try {
       const q = typeof req.query.q === 'string' ? req.query.q : '';
@@ -175,6 +220,167 @@ export async function startAppServer(options?: {
       res.json({ albums });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list albums' });
+    }
+  });
+
+  app.get('/api/albums/export-search', async (req, res) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const category = typeof req.query.category === 'string' ? req.query.category : 'all';
+      const format = typeof req.query.format === 'string' ? req.query.format : 'all';
+
+      const summaries = await db.listAlbums(q);
+      const filteredSummaries = summaries.filter((a) => {
+        if (category !== 'all' && a.album_music_category !== category) return false;
+        if (format !== 'all' && a.format !== format) return false;
+        return true;
+      });
+
+      const fullAlbums: Album[] = [];
+      for (const s of filteredSummaries) {
+        const loaded = await db.getAlbum(s.id);
+        if (loaded) fullAlbums.push(loaded);
+      }
+
+      const catalogRows: Array<Array<string | number | null>> = [
+        [
+          'Catalog #',
+          'Barcode',
+          'Album Title',
+          'Album Artist',
+          'Featured Singers',
+          'Label',
+          'Format',
+          'Category',
+          'CDs',
+          'Tracks',
+          'Full Tracks',
+          'Pot-Pouri',
+          'Album Time',
+          'Total Seconds',
+          'Producer',
+          'Production',
+          'Release Date',
+          'Playlist Link',
+          'Physical Web Link',
+          'Notes',
+        ],
+      ];
+
+      const songRows: Array<Array<string | number | null>> = [
+        [
+          'Catalog #',
+          'Album Title',
+          'Album Artist',
+          'CD #',
+          'A/A',
+          'Title GR',
+          'Title EN',
+          'Min',
+          'Sec',
+          'Total (s)',
+          'Full Track',
+          'Pot-Pouri',
+          'ISRC Code',
+          'ISWC Code',
+          'Autodia Code',
+          'Composer GR',
+          'Composer EN',
+          'Songwriter GR',
+          'Songwriter EN',
+          'Singer GR',
+          'Singer EN',
+          'AEPI %',
+          'Final AEPI %',
+          'Digital Web Link',
+          'Notes',
+          'Lyrics',
+        ],
+      ];
+
+      const musicianRows: Array<Array<string | number | null>> = [
+        ['Catalog #', 'Album Title', 'Role / Instrument', 'Musician Name', 'Tracks (empty = all)'],
+      ];
+
+      for (const album of fullAlbums) {
+        const matchedSummary = filteredSummaries.find((s) => s.id === album.id);
+        catalogRows.push([
+          album.catalog_number,
+          album.barcode,
+          album.album_title,
+          album.album_artist,
+          album.featured_artists,
+          album.label,
+          album.format,
+          album.album_music_category,
+          matchedSummary?.disc_count || 1,
+          album.songs.length,
+          matchedSummary?.full_track_count ?? album.songs.filter((s) => s.full_track).length,
+          matchedSummary?.pot_pouri_count ?? album.songs.filter((s) => s.pot_pouri).length,
+          album.album_time,
+          album.total_seconds,
+          album.producer,
+          album.production_company,
+          album.release_date,
+          album.cd_digital_playlist_link,
+          album.physical_product_web_link,
+          album.notes,
+        ]);
+
+        for (const s of album.songs) {
+          songRows.push([
+            album.catalog_number,
+            album.album_title,
+            album.album_artist,
+            s.disc_number || 1,
+            s.track_no,
+            s.title_gr,
+            s.title_en,
+            s.duration_min,
+            s.duration_sec,
+            s.total_seconds,
+            s.full_track ? 1 : 0,
+            s.pot_pouri ? 1 : 0,
+            s.isrc_code,
+            s.iswc_code,
+            s.autodia_code,
+            s.composer_gr,
+            s.composer_en,
+            s.songwriter_gr,
+            s.songwriter_en,
+            s.singer_gr,
+            s.singer_en,
+            s.aepi_percent,
+            s.final_aepi_percent,
+            s.digital_web_link,
+            s.notes,
+            s.lyrics,
+          ]);
+        }
+
+        for (const m of album.musicians) {
+          if (!m.role.trim() && !m.name.trim()) continue;
+          musicianRows.push([
+            album.catalog_number,
+            album.album_title,
+            m.role,
+            m.name,
+            m.tracks?.trim() || 'All tracks',
+          ]);
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(catalogRows), 'Catalog Results');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(songRows), 'Songs');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(musicianRows), 'Musicians');
+
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="discbase_search_results.xlsx"');
+      res.send(buf);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to export search results' });
     }
   });
 
@@ -468,6 +674,7 @@ export async function startAppServer(options?: {
         'index.html',
         'server.ts',
         'electron-builder.yml',
+        'build-info.json',
         '.env.example',
         '.gitignore',
         'metadata.json',

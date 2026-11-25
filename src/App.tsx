@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { TopBar, type ActiveTab } from './components/TopBar';
+import { UpdateWarningBanner } from './components/UpdateWarningBanner';
 import { CatalogBrowser } from './components/CatalogBrowser';
 import { AlbumSheetEditor } from './components/AlbumSheetEditor';
 import { XlsxImporter } from './components/XlsxImporter';
 import { MysqlSettings } from './components/MysqlSettings';
 import type { ThemeMode } from './components/ThemeToggle';
-import type { Album, AlbumSummary, DbStatus } from './types/catalog';
+import type { Album, AlbumSummary, DbStatus, VersionCheckResult } from './types/catalog';
 import { createEmptyAlbum } from './utils/catalogMath';
 
 function getInitialTheme(): ThemeMode {
@@ -27,6 +28,11 @@ export default function App() {
   const [savingAlbum, setSavingAlbum] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [currentVersion, setCurrentVersion] = useState('2.6.0');
+  const [versionInfo, setVersionInfo] = useState<VersionCheckResult | null>(null);
+  const [checkingVersion, setCheckingVersion] = useState(false);
+  const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -70,9 +76,47 @@ export default function App() {
     }
   }, []);
 
+  const checkAppVersion = useCallback(async (force = false) => {
+    setCheckingVersion(true);
+    try {
+      const res = await fetch(force ? '/api/version/check?force=1' : '/api/version/check');
+      if (res.ok) {
+        const data = (await res.json()) as VersionCheckResult;
+        if (data.currentVersion) setCurrentVersion(data.currentVersion);
+        setVersionInfo(data);
+        if (force) setUpdateBannerDismissed(false);
+      }
+    } catch {
+      // Ignore transient network errors during update checks
+    } finally {
+      setCheckingVersion(false);
+    }
+  }, []);
+
   useEffect(() => {
     void fetchDbStatus();
-  }, [fetchDbStatus]);
+    void (async () => {
+      try {
+        const res = await fetch('/api/version');
+        if (res.ok) {
+          const summary = (await res.json()) as {
+            currentVersion?: string;
+            checkOnStartup?: boolean;
+            cachedCheck?: VersionCheckResult | null;
+          };
+          if (summary.currentVersion) setCurrentVersion(summary.currentVersion);
+          if (summary.cachedCheck) setVersionInfo(summary.cachedCheck);
+          if (summary.checkOnStartup !== false) {
+            await checkAppVersion(false);
+          }
+          return;
+        }
+      } catch {
+        // Fallback to direct check
+      }
+      await checkAppVersion(false);
+    })();
+  }, [fetchDbStatus, checkAppVersion]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -155,6 +199,20 @@ export default function App() {
     link.remove();
   };
 
+  const handleExportSearchResults = (categoryFilter: string, formatFilter: string) => {
+    const params = new URLSearchParams();
+    if (searchQuery.trim()) params.set('q', searchQuery.trim());
+    if (categoryFilter && categoryFilter !== 'all') params.set('category', categoryFilter);
+    if (formatFilter && formatFilter !== 'all') params.set('format', formatFilter);
+    const qs = params.toString();
+    const link = document.createElement('a');
+    link.href = qs ? `/api/albums/export-search?${qs}` : '/api/albums/export-search';
+    link.download = 'discbase_search_results.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const handleOpenParsedInEditor = (album: Album, replaceExistingId?: number) => {
     setSaveMessage(null);
     setSaveError(null);
@@ -176,6 +234,15 @@ export default function App() {
       <TopBar
         activeTab={activeTab}
         theme={theme}
+        currentVersion={currentVersion}
+        versionInfo={versionInfo}
+        onVersionClick={() => {
+          if (versionInfo?.isOutdated) {
+            setUpdateBannerDismissed(false);
+          } else {
+            setActiveTab('mysql');
+          }
+        }}
         onThemeChange={handleThemeChange}
         onNavigate={(tab) => {
           setSaveMessage(null);
@@ -184,6 +251,15 @@ export default function App() {
         }}
         onNewAlbum={handleNewAlbum}
       />
+
+      {versionInfo && versionInfo.isOutdated && !updateBannerDismissed && (
+        <UpdateWarningBanner
+          versionInfo={versionInfo}
+          checking={checkingVersion}
+          onRecheck={() => void checkAppVersion(true)}
+          onDismiss={() => setUpdateBannerDismissed(true)}
+        />
+      )}
 
       <main className="flex-1 w-full px-3 sm:px-6 lg:px-8 xl:px-10 py-5 sm:py-6">
         {activeTab === 'catalog' && (
@@ -196,6 +272,7 @@ export default function App() {
             onOpenAlbum={handleOpenAlbum}
             onDeleteAlbum={handleDeleteAlbum}
             onExportAlbum={handleExportAlbum}
+            onExportSearchResults={handleExportSearchResults}
             onNewAlbum={handleNewAlbum}
             onGoToImport={() => setActiveTab('import')}
             onGoToMysql={() => setActiveTab('mysql')}
@@ -226,6 +303,15 @@ export default function App() {
         {activeTab === 'mysql' && (
           <MysqlSettings
             dbStatus={dbStatus}
+            currentVersion={currentVersion}
+            versionInfo={versionInfo}
+            checkingVersion={checkingVersion}
+            onCheckVersion={checkAppVersion}
+            onVersionUpdated={(nextInfo) => {
+              if (nextInfo.currentVersion) setCurrentVersion(nextInfo.currentVersion);
+              setVersionInfo(nextInfo);
+              setUpdateBannerDismissed(false);
+            }}
             onStatusUpdated={handleStatusUpdated}
           />
         )}

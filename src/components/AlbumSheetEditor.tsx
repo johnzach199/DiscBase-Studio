@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowDown,
@@ -167,6 +167,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
   const [activeDiscFilter, setActiveDiscFilter] = useState<'all' | number>('all');
   const [lyricsModalSongIdx, setLyricsModalSongIdx] = useState<number | null>(null);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const songTableRef = useRef<HTMLTableElement | null>(null);
 
   const stats = useMemo(() => computeAlbumStats(album.songs), [album.songs]);
   const validation = useMemo(() => validateAlbum(album), [album]);
@@ -232,10 +233,78 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
     () => ALL_SONG_COLUMNS.filter((c) => visibleCols[c.key]),
     [visibleCols]
   );
+  const focusableSongCols = useMemo(
+    () => visibleColumnsList.filter((c) => c.key !== 'total_seconds').map((c) => c.key),
+    [visibleColumnsList]
+  );
   const hiddenColumnsList = useMemo(
     () => ALL_SONG_COLUMNS.filter((c) => !visibleCols[c.key]),
     [visibleCols]
   );
+
+  const focusSongCell = (targetRow: number, targetCol: SongColKey) => {
+    const tableEl = songTableRef.current;
+    if (!tableEl) return;
+    const selector = `[data-song-row="${targetRow}"][data-song-col="${targetCol}"]`;
+    const nextEl = tableEl.querySelector<HTMLElement>(selector);
+    if (nextEl) {
+      nextEl.focus();
+      nextEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  };
+
+  const handleSongCellKeyDown = (
+    e: React.KeyboardEvent<HTMLElement>,
+    rowIdx: number,
+    colKey: SongColKey
+  ) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const targetRow = rowIdx + (e.shiftKey ? -1 : 1);
+      if (targetRow >= 0 && targetRow < indexedVisibleSongs.length) {
+        focusSongCell(targetRow, colKey);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (rowIdx + 1 < indexedVisibleSongs.length) {
+        focusSongCell(rowIdx + 1, colKey);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (rowIdx - 1 >= 0) {
+        focusSongCell(rowIdx - 1, colKey);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const target = e.currentTarget;
+      if (target instanceof HTMLInputElement && (target.type === 'text' || target.type === 'url')) {
+        const selStart = target.selectionStart;
+        const selEnd = target.selectionEnd;
+        const len = target.value.length;
+        const allSelected = selStart === 0 && selEnd === len && len > 0;
+        if (!allSelected && selStart !== null && selEnd !== null) {
+          if (e.key === 'ArrowRight' && selStart < len) return;
+          if (e.key === 'ArrowLeft' && selStart > 0) return;
+        }
+      }
+
+      const colPos = focusableSongCols.indexOf(colKey);
+      if (colPos === -1) return;
+      const nextColPos = e.key === 'ArrowRight' ? colPos + 1 : colPos - 1;
+      if (nextColPos >= 0 && nextColPos < focusableSongCols.length) {
+        e.preventDefault();
+        focusSongCell(rowIdx, focusableSongCols[nextColPos]);
+      }
+    }
+  };
 
   const aepiAndNotesVisible = AEPI_NOTES_KEYS.some((k) => visibleCols[k]);
 
@@ -382,10 +451,14 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
     });
   };
 
-  const updateMusician = (idx: number, field: 'role' | 'name', value: string) => {
-    const nextMusicians = album.musicians.map((m, i) =>
-      i === idx ? { ...m, [field]: value } : m
-    );
+  const updateMusician = (idx: number, field: 'role' | 'name' | 'tracks', value: string) => {
+    const nextMusicians = album.musicians.map((m, i) => {
+      if (i !== idx) return m;
+      if (field === 'tracks') {
+        return { ...m, tracks: value === '' ? null : value };
+      }
+      return { ...m, [field]: value };
+    });
     onChange({ ...album, musicians: nextMusicians });
   };
 
@@ -394,7 +467,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
       ...album,
       musicians: [
         ...album.musicians,
-        { role: '', name: '', sort_order: album.musicians.length },
+        { role: '', name: '', tracks: null, sort_order: album.musicians.length },
       ],
     });
   };
@@ -403,7 +476,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
     if (album.musicians.length <= 1) {
       onChange({
         ...album,
-        musicians: [{ role: '', name: '', sort_order: 0 }],
+        musicians: [{ role: '', name: '', tracks: null, sort_order: 0 }],
       });
       return;
     }
@@ -1158,7 +1231,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
         )}
 
         <div className="overflow-x-auto spreadsheet-scroll">
-          <table className="w-full text-left border-collapse text-xs">
+          <table ref={songTableRef} className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold">
                 {visibleColumnsList.map(renderColumnHeader)}
@@ -1168,7 +1241,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {indexedVisibleSongs.map(({ song, idx }) => {
+              {indexedVisibleSongs.map(({ song, idx }, visibleRowIdx) => {
                 const rowHasError = attemptedSubmit && Boolean(validation.songErrors[idx]);
                 const rowBg = rowHasError
                   ? 'bg-red-50/50 dark:bg-red-950/30'
@@ -1186,6 +1259,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className={`p-1 border-r border-slate-200 dark:border-slate-800 sticky left-0 z-10 ${stickyBg}`}>
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="track_no"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'track_no')}
                           aria-label={`Row ${idx + 1} Track Number`}
                           value={song.track_no}
                           onChange={(e) => updateSong(idx, { track_no: e.target.value })}
@@ -1199,6 +1275,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                         <input
                           type="number"
                           min={1}
+                          data-song-row={visibleRowIdx}
+                          data-song-col="disc_number"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'disc_number')}
                           aria-label={`Row ${idx + 1} CD Number`}
                           value={song.disc_number ?? 1}
                           onChange={(e) => {
@@ -1216,6 +1295,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className={`p-1 border-r border-slate-300 dark:border-slate-700 ${titleGrCellStickyClass} sm:shadow-[2px_0_4px_-2px_rgba(15,23,42,0.12)] ${stickyBg}`}>
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="title_gr"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'title_gr')}
                           title={song.title_gr}
                           aria-label={`Row ${idx + 1} Title GR`}
                           value={song.title_gr}
@@ -1234,6 +1316,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="title_en"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'title_en')}
                           aria-label={`Row ${idx + 1} Title EN`}
                           value={song.title_en}
                           onChange={(e) => updateSong(idx, { title_en: e.target.value })}
@@ -1247,6 +1332,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800 text-center">
                         <input
                           type="checkbox"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="full_track"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'full_track')}
                           aria-label={`Row ${idx + 1} Full Track`}
                           checked={song.full_track}
                           onChange={(e) => updateSong(idx, { full_track: e.target.checked })}
@@ -1259,6 +1347,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800 text-center">
                         <input
                           type="checkbox"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="pot_pouri"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'pot_pouri')}
                           aria-label={`Row ${idx + 1} Pot-Pouri`}
                           checked={song.pot_pouri}
                           onChange={(e) => updateSong(idx, { pot_pouri: e.target.checked })}
@@ -1272,6 +1363,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                         <input
                           type="number"
                           min={0}
+                          data-song-row={visibleRowIdx}
+                          data-song-col="duration_min"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'duration_min')}
                           aria-label={`Row ${idx + 1} Duration Minutes`}
                           value={song.duration_min ?? ''}
                           onChange={(e) =>
@@ -1290,6 +1384,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                           type="number"
                           min={0}
                           max={59}
+                          data-song-row={visibleRowIdx}
+                          data-song-col="duration_sec"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'duration_sec')}
                           aria-label={`Row ${idx + 1} Duration Seconds`}
                           value={song.duration_sec ?? ''}
                           onChange={(e) =>
@@ -1313,6 +1410,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                         <input
                           type="number"
                           step="0.01"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="aepi_percent"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'aepi_percent')}
                           aria-label={`Row ${idx + 1} AEPI Percent`}
                           value={song.aepi_percent ?? ''}
                           onChange={(e) =>
@@ -1329,6 +1429,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="isrc_code"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'isrc_code')}
                           aria-label={`Row ${idx + 1} ISRC Code`}
                           value={song.isrc_code}
                           onChange={(e) => updateSong(idx, { isrc_code: e.target.value })}
@@ -1342,6 +1445,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="composer_gr"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'composer_gr')}
                           title={song.composer_gr}
                           aria-label={`Row ${idx + 1} Composer GR`}
                           value={song.composer_gr}
@@ -1355,6 +1461,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="songwriter_gr"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'songwriter_gr')}
                           title={song.songwriter_gr}
                           aria-label={`Row ${idx + 1} Songwriter GR`}
                           value={song.songwriter_gr}
@@ -1368,6 +1477,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="autodia_code"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'autodia_code')}
                           aria-label={`Row ${idx + 1} Autodia Code`}
                           value={song.autodia_code}
                           onChange={(e) => updateSong(idx, { autodia_code: e.target.value })}
@@ -1380,6 +1492,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="iswc_code"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'iswc_code')}
                           aria-label={`Row ${idx + 1} ISWC Code`}
                           value={song.iswc_code}
                           onChange={(e) => updateSong(idx, { iswc_code: e.target.value })}
@@ -1392,6 +1507,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="composer_en"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'composer_en')}
                           title={song.composer_en}
                           aria-label={`Row ${idx + 1} Composer EN`}
                           value={song.composer_en}
@@ -1405,6 +1523,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="songwriter_en"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'songwriter_en')}
                           aria-label={`Row ${idx + 1} Songwriter EN`}
                           value={song.songwriter_en}
                           onChange={(e) => updateSong(idx, { songwriter_en: e.target.value })}
@@ -1418,6 +1539,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                         <div className="flex items-center gap-1">
                           <input
                             type="text"
+                            data-song-row={visibleRowIdx}
+                            data-song-col="digital_web_link"
+                            onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'digital_web_link')}
                             aria-label={`Row ${idx + 1} Digital Web Link`}
                             value={song.digital_web_link}
                             onChange={(e) => updateSong(idx, { digital_web_link: e.target.value })}
@@ -1445,6 +1569,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                         <input
                           type="number"
                           step="0.00001"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="final_aepi_percent"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'final_aepi_percent')}
                           aria-label={`Row ${idx + 1} Final AEPI Percent`}
                           value={song.final_aepi_percent ?? ''}
                           onChange={(e) =>
@@ -1461,6 +1588,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="singer_gr"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'singer_gr')}
                           aria-label={`Row ${idx + 1} Singer GR`}
                           value={song.singer_gr}
                           onChange={(e) => updateSong(idx, { singer_gr: e.target.value })}
@@ -1473,6 +1603,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="singer_en"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'singer_en')}
                           aria-label={`Row ${idx + 1} Singer EN`}
                           value={song.singer_en}
                           onChange={(e) => updateSong(idx, { singer_en: e.target.value })}
@@ -1485,6 +1618,9 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <input
                           type="text"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="notes"
+                          onKeyDown={(e) => handleSongCellKeyDown(e, visibleRowIdx, 'notes')}
                           aria-label={`Row ${idx + 1} Notes`}
                           value={song.notes}
                           onChange={(e) => updateSong(idx, { notes: e.target.value })}
@@ -1497,6 +1633,24 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                       <td className="p-1 border-r border-slate-200 dark:border-slate-800">
                         <button
                           type="button"
+                          data-song-row={visibleRowIdx}
+                          data-song-col="lyrics"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSongCellKeyDown(e, visibleRowIdx, 'lyrics');
+                              return;
+                            }
+                            if (
+                              e.key === 'ArrowDown' ||
+                              e.key === 'ArrowUp' ||
+                              e.key === 'ArrowLeft' ||
+                              e.key === 'ArrowRight' ||
+                              (e.key === 'Enter' && e.shiftKey)
+                            ) {
+                              handleSongCellKeyDown(e, visibleRowIdx, 'lyrics');
+                            }
+                          }}
                           onClick={() => setLyricsModalSongIdx(idx)}
                           aria-label={`Edit lyrics for row ${idx + 1}`}
                           className="w-full flex items-center justify-between gap-2 px-2 py-1 text-left rounded border border-transparent hover:border-slate-200 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/70 transition-colors cursor-pointer"
@@ -1591,7 +1745,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
               Musicians (Έπαιξαν οι μουσικοί)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Add sub-musician entries by instrument/role and performer name
+              Add sub-musician entries by instrument/role, performer name, and tracks played (e.g. 1,3,5,6α,7 — leave empty for all tracks)
             </p>
           </div>
           <button
@@ -1604,7 +1758,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {album.musicians.map((m, idx) => (
             <div
               key={idx}
@@ -1616,16 +1770,25 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
                 value={m.role}
                 onChange={(e) => updateMusician(idx, 'role', e.target.value)}
                 placeholder="Instrument / Role (e.g. Κλαρίνο)"
-                className="w-full sm:w-44 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
+                className="w-full sm:w-36 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
-              <div className="flex items-center gap-2 flex-1 min-w-0">
+              <input
+                type="text"
+                aria-label={`Musician ${idx + 1} Full Name`}
+                value={m.name}
+                onChange={(e) => updateMusician(idx, 'name', e.target.value)}
+                placeholder="Musician Full Name..."
+                className="flex-1 min-w-0 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <div className="flex items-center gap-2 sm:w-48 shrink-0">
                 <input
                   type="text"
-                  aria-label={`Musician ${idx + 1} Full Name`}
-                  value={m.name}
-                  onChange={(e) => updateMusician(idx, 'name', e.target.value)}
-                  placeholder="Musician Full Name..."
-                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  aria-label={`Musician ${idx + 1} Tracks`}
+                  title="Comma-separated tracks (e.g. 1,3,5,6α,7). Leave empty if musician plays on all tracks."
+                  value={m.tracks ?? ''}
+                  onChange={(e) => updateMusician(idx, 'tracks', e.target.value)}
+                  placeholder="Tracks (all)"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
                 <button
                   type="button"

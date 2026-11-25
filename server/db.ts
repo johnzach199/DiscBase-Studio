@@ -10,6 +10,7 @@ import {
   computeSongSeconds,
   deduplicateAlbumBatch,
   findDuplicateAlbum as findDuplicateInList,
+  matchesAlbumSearch,
 } from '../src/utils/catalogMath';
 import { getInitialSeedAlbums } from './seedData';
 
@@ -225,6 +226,7 @@ export class CatalogDatabase {
         album_id INTEGER NOT NULL,
         role TEXT NOT NULL DEFAULT '',
         name TEXT NOT NULL DEFAULT '',
+        tracks TEXT NULL DEFAULT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
       );
@@ -260,22 +262,32 @@ export class CatalogDatabase {
     `;
   }
 
-  private ensureSqliteSongsColumns(db: SqlJsDatabase): void {
-    const pragma = db.exec('PRAGMA table_info(songs);');
-    const colNames = new Set<string>();
-    if (pragma.length > 0) {
-      const nameColIdx = pragma[0].columns.indexOf('name');
-      for (const row of pragma[0].values) {
-        if (nameColIdx >= 0 && row[nameColIdx]) {
-          colNames.add(String(row[nameColIdx]));
+  private ensureSqliteSchemaColumns(db: SqlJsDatabase): void {
+    const getCols = (table: string): Set<string> => {
+      const pragma = db.exec(`PRAGMA table_info(${table});`);
+      const colNames = new Set<string>();
+      if (pragma.length > 0) {
+        const nameColIdx = pragma[0].columns.indexOf('name');
+        for (const row of pragma[0].values) {
+          if (nameColIdx >= 0 && row[nameColIdx]) {
+            colNames.add(String(row[nameColIdx]));
+          }
         }
       }
-    }
-    if (!colNames.has('disc_number')) {
+      return colNames;
+    };
+
+    const songCols = getCols('songs');
+    if (!songCols.has('disc_number')) {
       db.exec('ALTER TABLE songs ADD COLUMN disc_number INTEGER NOT NULL DEFAULT 1;');
     }
-    if (!colNames.has('lyrics')) {
+    if (!songCols.has('lyrics')) {
       db.exec("ALTER TABLE songs ADD COLUMN lyrics TEXT DEFAULT '';");
+    }
+
+    const musicianCols = getCols('album_musicians');
+    if (musicianCols.size > 0 && !musicianCols.has('tracks')) {
+      db.exec('ALTER TABLE album_musicians ADD COLUMN tracks TEXT NULL DEFAULT NULL;');
     }
   }
 
@@ -336,7 +348,7 @@ export class CatalogDatabase {
 
       db.exec('PRAGMA foreign_keys = ON;');
       db.exec(this.getSqliteSchemaSql());
-      this.ensureSqliteSongsColumns(db);
+      this.ensureSqliteSchemaColumns(db);
 
       if (this.sqliteDb) {
         this.sqliteDb.close();
@@ -399,7 +411,7 @@ export class CatalogDatabase {
     try {
       candidateDb.exec('PRAGMA foreign_keys = ON;');
       candidateDb.exec(this.getSqliteSchemaSql());
-      this.ensureSqliteSongsColumns(candidateDb);
+      this.ensureSqliteSchemaColumns(candidateDb);
     } catch (err) {
       candidateDb.close();
       throw new Error(err instanceof Error ? `Invalid SQLite database file: ${err.message}` : 'Invalid SQLite file');
@@ -478,8 +490,8 @@ export class CatalogDatabase {
 
       for (const m of clean.musicians) {
         this.sqliteRun(
-          'INSERT INTO album_musicians (album_id, role, name, sort_order) VALUES (?, ?, ?, ?)',
-          [albumId, m.role, m.name, m.sort_order]
+          'INSERT INTO album_musicians (album_id, role, name, tracks, sort_order) VALUES (?, ?, ?, ?, ?)',
+          [albumId, m.role, m.name, m.tracks ?? null, m.sort_order]
         );
       }
 
@@ -723,6 +735,7 @@ export class CatalogDatabase {
         album_id INT UNSIGNED NOT NULL,
         role VARCHAR(191) NOT NULL DEFAULT '',
         name VARCHAR(512) NOT NULL DEFAULT '',
+        tracks VARCHAR(255) NULL DEFAULT NULL,
         sort_order INT UNSIGNED NOT NULL DEFAULT 0,
         PRIMARY KEY (id),
         INDEX idx_musicians_album (album_id),
@@ -878,7 +891,7 @@ export class CatalogDatabase {
         }
       }
 
-      // Add multi-CD disc_number and lyrics columns on pre-existing MySQL databases
+      // Add multi-CD disc_number, lyrics, and musician tracks columns on pre-existing MySQL databases
       if (!colLen.has('songs.disc_number')) {
         await pool
           .query('ALTER TABLE songs ADD COLUMN disc_number SMALLINT UNSIGNED NOT NULL DEFAULT 1 AFTER album_id')
@@ -887,6 +900,11 @@ export class CatalogDatabase {
       if (!colLen.has('songs.lyrics')) {
         await pool
           .query('ALTER TABLE songs ADD COLUMN lyrics LONGTEXT AFTER notes')
+          .catch(() => {});
+      }
+      if (!colLen.has('album_musicians.tracks')) {
+        await pool
+          .query('ALTER TABLE album_musicians ADD COLUMN tracks VARCHAR(255) NULL DEFAULT NULL AFTER name')
           .catch(() => {});
       }
     } catch {
@@ -1184,11 +1202,15 @@ export class CatalogDatabase {
 
     const musicians: Musician[] = (input.musicians || [])
       .filter((m) => String(m.role || '').trim() || String(m.name || '').trim())
-      .map((m, idx) => ({
-        role: clampField(m.role, 128),
-        name: clampField(m.name, 255),
-        sort_order: idx,
-      }));
+      .map((m, idx) => {
+        const cleanTracks = clampField(m.tracks ?? '', 255);
+        return {
+          role: clampField(m.role, 128),
+          name: clampField(m.name, 255),
+          tracks: cleanTracks ? cleanTracks : null,
+          sort_order: idx,
+        };
+      });
 
     const stats = computeAlbumStats(songs);
 
@@ -1264,6 +1286,7 @@ export class CatalogDatabase {
         id: Number(m.id),
         role: String(m.role || ''),
         name: String(m.name || ''),
+        tracks: m.tracks !== null && m.tracks !== undefined && String(m.tracks).trim() !== '' ? String(m.tracks) : null,
         sort_order: Number(m.sort_order || 0),
       })),
       songs: sRows.map((s) => ({
@@ -1302,7 +1325,7 @@ export class CatalogDatabase {
   // ---------------- CRUD Operations ----------------
 
   public async listAlbums(query?: string): Promise<AlbumSummary[]> {
-    const q = (query || '').trim().toLowerCase();
+    const q = (query || '').trim();
 
     if (this.mysqlConnected && this.mysqlPool) {
       const [rows] = await this.mysqlPool.query<RowDataPacket[]>(
@@ -1310,6 +1333,7 @@ export class CatalogDatabase {
           a.id, a.barcode, a.catalog_number, a.label, a.format,
           a.album_artist, a.album_title, a.album_time, a.total_seconds,
           a.release_date, a.album_music_category, a.producer, a.updated_at,
+          a.featured_artists, a.phonographic_company, a.production_company, a.print_design, a.notes,
           COUNT(DISTINCT s.id) AS track_count,
           COALESCE(SUM(CASE WHEN s.full_track = 1 THEN 1 ELSE 0 END), 0) AS full_track_count,
           COALESCE(SUM(CASE WHEN s.pot_pouri = 1 THEN 1 ELSE 0 END), 0) AS pot_pouri_count,
@@ -1341,15 +1365,93 @@ export class CatalogDatabase {
         updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : undefined,
       }));
       if (!q) return mapped;
-      return mapped.filter(
-        (a) =>
-          a.album_title.toLowerCase().includes(q) ||
-          a.catalog_number.toLowerCase().includes(q) ||
-          a.barcode.toLowerCase().includes(q) ||
-          a.album_artist.toLowerCase().includes(q) ||
-          a.label.toLowerCase().includes(q) ||
-          a.album_music_category.toLowerCase().includes(q)
+
+      const [songRows] = await this.mysqlPool.query<RowDataPacket[]>(
+        `SELECT album_id, track_no, title_gr, title_en, isrc_code, iswc_code, autodia_code,
+                composer_gr, composer_en, songwriter_gr, songwriter_en, singer_gr, singer_en, notes, lyrics
+         FROM songs`
       );
+      const [musicianRows] = await this.mysqlPool.query<RowDataPacket[]>(
+        `SELECT album_id, role, name, tracks FROM album_musicians`
+      );
+
+      const songsByAlbum = new Map<number, Song[]>();
+      for (const s of songRows) {
+        const aid = Number(s.album_id);
+        const list = songsByAlbum.get(aid) || [];
+        list.push({
+          disc_number: 1,
+          track_no: String(s.track_no || ''),
+          title_gr: String(s.title_gr || ''),
+          title_en: String(s.title_en || ''),
+          duration_min: null,
+          duration_sec: null,
+          total_seconds: 0,
+          full_track: true,
+          pot_pouri: false,
+          isrc_code: String(s.isrc_code || ''),
+          iswc_code: String(s.iswc_code || ''),
+          autodia_code: String(s.autodia_code || ''),
+          composer_gr: String(s.composer_gr || ''),
+          composer_en: String(s.composer_en || ''),
+          songwriter_gr: String(s.songwriter_gr || ''),
+          songwriter_en: String(s.songwriter_en || ''),
+          digital_web_link: '',
+          singer_gr: String(s.singer_gr || ''),
+          singer_en: String(s.singer_en || ''),
+          aepi_percent: null,
+          final_aepi_percent: null,
+          notes: String(s.notes || ''),
+          lyrics: String(s.lyrics || ''),
+          sort_order: 0,
+        });
+        songsByAlbum.set(aid, list);
+      }
+
+      const musiciansByAlbum = new Map<number, Musician[]>();
+      for (const m of musicianRows) {
+        const aid = Number(m.album_id);
+        const list = musiciansByAlbum.get(aid) || [];
+        list.push({
+          role: String(m.role || ''),
+          name: String(m.name || ''),
+          tracks: m.tracks !== null && m.tracks !== undefined ? String(m.tracks) : null,
+          sort_order: 0,
+        });
+        musiciansByAlbum.set(aid, list);
+      }
+
+      const extraById = new Map<number, RowDataPacket>();
+      for (const r of rows) extraById.set(Number(r.id), r);
+
+      return mapped.filter((summary) => {
+        const r = extraById.get(summary.id);
+        const candidate: Album = {
+          id: summary.id,
+          barcode: summary.barcode,
+          catalog_number: summary.catalog_number,
+          label: summary.label,
+          phonographic_company: String(r?.phonographic_company || ''),
+          format: summary.format,
+          album_artist: summary.album_artist,
+          featured_artists: String(r?.featured_artists || ''),
+          album_title: summary.album_title,
+          album_time: summary.album_time,
+          total_seconds: summary.total_seconds,
+          release_date: summary.release_date,
+          return_date: '',
+          album_music_category: summary.album_music_category,
+          producer: summary.producer,
+          production_company: String(r?.production_company || ''),
+          print_design: String(r?.print_design || ''),
+          cd_digital_playlist_link: '',
+          physical_product_web_link: '',
+          notes: String(r?.notes || ''),
+          musicians: musiciansByAlbum.get(summary.id) || [],
+          songs: songsByAlbum.get(summary.id) || [],
+        };
+        return matchesAlbumSearch(candidate, q);
+      });
     }
 
     if (this.sqliteDb) {
@@ -1358,6 +1460,7 @@ export class CatalogDatabase {
           a.id, a.barcode, a.catalog_number, a.label, a.format,
           a.album_artist, a.album_title, a.album_time, a.total_seconds,
           a.release_date, a.album_music_category, a.producer, a.updated_at,
+          a.featured_artists, a.phonographic_company, a.production_company, a.print_design, a.notes,
           COUNT(DISTINCT s.id) AS track_count,
           COALESCE(SUM(CASE WHEN s.full_track = 1 THEN 1 ELSE 0 END), 0) AS full_track_count,
           COALESCE(SUM(CASE WHEN s.pot_pouri = 1 THEN 1 ELSE 0 END), 0) AS pot_pouri_count,
@@ -1390,29 +1493,92 @@ export class CatalogDatabase {
       }));
       if (!q) return mapped;
 
-      const matchingSongAlbumIds = new Set(
-        this.sqliteAll<{ album_id: number }>(
-          `SELECT DISTINCT album_id FROM songs
-           WHERE LOWER(title_gr) LIKE ?
-              OR LOWER(title_en) LIKE ?
-              OR LOWER(isrc_code) LIKE ?
-              OR LOWER(singer_gr) LIKE ?
-              OR LOWER(composer_gr) LIKE ?
-              OR LOWER(lyrics) LIKE ?`,
-          [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
-        ).map((row) => Number(row.album_id))
+      const songRows = this.sqliteAll<Record<string, unknown>>(
+        `SELECT album_id, track_no, title_gr, title_en, isrc_code, iswc_code, autodia_code,
+                composer_gr, composer_en, songwriter_gr, songwriter_en, singer_gr, singer_en, notes, lyrics
+         FROM songs`
+      );
+      const musicianRows = this.sqliteAll<Record<string, unknown>>(
+        `SELECT album_id, role, name, tracks FROM album_musicians`
       );
 
-      return mapped.filter(
-        (a) =>
-          a.album_title.toLowerCase().includes(q) ||
-          a.catalog_number.toLowerCase().includes(q) ||
-          a.barcode.toLowerCase().includes(q) ||
-          a.album_artist.toLowerCase().includes(q) ||
-          a.label.toLowerCase().includes(q) ||
-          a.album_music_category.toLowerCase().includes(q) ||
-          matchingSongAlbumIds.has(a.id)
-      );
+      const songsByAlbum = new Map<number, Song[]>();
+      for (const s of songRows) {
+        const aid = Number(s.album_id);
+        const list = songsByAlbum.get(aid) || [];
+        list.push({
+          disc_number: 1,
+          track_no: String(s.track_no || ''),
+          title_gr: String(s.title_gr || ''),
+          title_en: String(s.title_en || ''),
+          duration_min: null,
+          duration_sec: null,
+          total_seconds: 0,
+          full_track: true,
+          pot_pouri: false,
+          isrc_code: String(s.isrc_code || ''),
+          iswc_code: String(s.iswc_code || ''),
+          autodia_code: String(s.autodia_code || ''),
+          composer_gr: String(s.composer_gr || ''),
+          composer_en: String(s.composer_en || ''),
+          songwriter_gr: String(s.songwriter_gr || ''),
+          songwriter_en: String(s.songwriter_en || ''),
+          digital_web_link: '',
+          singer_gr: String(s.singer_gr || ''),
+          singer_en: String(s.singer_en || ''),
+          aepi_percent: null,
+          final_aepi_percent: null,
+          notes: String(s.notes || ''),
+          lyrics: String(s.lyrics || ''),
+          sort_order: 0,
+        });
+        songsByAlbum.set(aid, list);
+      }
+
+      const musiciansByAlbum = new Map<number, Musician[]>();
+      for (const m of musicianRows) {
+        const aid = Number(m.album_id);
+        const list = musiciansByAlbum.get(aid) || [];
+        list.push({
+          role: String(m.role || ''),
+          name: String(m.name || ''),
+          tracks: m.tracks !== null && m.tracks !== undefined ? String(m.tracks) : null,
+          sort_order: 0,
+        });
+        musiciansByAlbum.set(aid, list);
+      }
+
+      const extraById = new Map<number, Record<string, unknown>>();
+      for (const r of rows) extraById.set(Number(r.id), r);
+
+      return mapped.filter((summary) => {
+        const r = extraById.get(summary.id);
+        const candidate: Album = {
+          id: summary.id,
+          barcode: summary.barcode,
+          catalog_number: summary.catalog_number,
+          label: summary.label,
+          phonographic_company: String(r?.phonographic_company || ''),
+          format: summary.format,
+          album_artist: summary.album_artist,
+          featured_artists: String(r?.featured_artists || ''),
+          album_title: summary.album_title,
+          album_time: summary.album_time,
+          total_seconds: summary.total_seconds,
+          release_date: summary.release_date,
+          return_date: '',
+          album_music_category: summary.album_music_category,
+          producer: summary.producer,
+          production_company: String(r?.production_company || ''),
+          print_design: String(r?.print_design || ''),
+          cd_digital_playlist_link: '',
+          physical_product_web_link: '',
+          notes: String(r?.notes || ''),
+          musicians: musiciansByAlbum.get(summary.id) || [],
+          songs: songsByAlbum.get(summary.id) || [],
+        };
+        return matchesAlbumSearch(candidate, q);
+      });
     }
 
     const store = this.readLocalStore();
@@ -1446,25 +1612,7 @@ export class CatalogDatabase {
     if (!q) return summaries;
     return summaries.filter((summary) => {
       const fullAlbum = store.albums.find((al) => al.id === summary.id);
-      const matchesAlbum =
-        summary.album_title.toLowerCase().includes(q) ||
-        summary.catalog_number.toLowerCase().includes(q) ||
-        summary.barcode.toLowerCase().includes(q) ||
-        summary.album_artist.toLowerCase().includes(q) ||
-        summary.label.toLowerCase().includes(q) ||
-        summary.album_music_category.toLowerCase().includes(q);
-      if (matchesAlbum) return true;
-      return Boolean(
-        fullAlbum?.songs.some(
-          (s) =>
-            s.title_gr.toLowerCase().includes(q) ||
-            s.title_en.toLowerCase().includes(q) ||
-            s.isrc_code.toLowerCase().includes(q) ||
-            s.singer_gr.toLowerCase().includes(q) ||
-            s.composer_gr.toLowerCase().includes(q) ||
-            (s.lyrics || '').toLowerCase().includes(q)
-        )
-      );
+      return fullAlbum ? matchesAlbumSearch(fullAlbum, q) : false;
     });
   }
 
@@ -1510,6 +1658,7 @@ export class CatalogDatabase {
           id: Number(m.id),
           role: String(m.role || ''),
           name: String(m.name || ''),
+          tracks: m.tracks !== null && m.tracks !== undefined && String(m.tracks).trim() !== '' ? String(m.tracks) : null,
           sort_order: Number(m.sort_order || 0),
         })),
         songs: sRows.map((s) => ({
@@ -1551,6 +1700,10 @@ export class CatalogDatabase {
     if (!localFound) return null;
     return {
       ...localFound,
+      musicians: (localFound.musicians || []).map((m) => ({
+        ...m,
+        tracks: m.tracks && String(m.tracks).trim() !== '' ? String(m.tracks) : null,
+      })),
       songs: (localFound.songs || []).map((s) => ({
         ...s,
         disc_number: Math.max(1, Number(s.disc_number || 1)),
@@ -1599,8 +1752,8 @@ export class CatalogDatabase {
 
         for (const m of clean.musicians) {
           await conn.query(
-            'INSERT INTO album_musicians (album_id, role, name, sort_order) VALUES (?, ?, ?, ?)',
-            [albumId, m.role, m.name, m.sort_order]
+            'INSERT INTO album_musicians (album_id, role, name, tracks, sort_order) VALUES (?, ?, ?, ?, ?)',
+            [albumId, m.role, m.name, m.tracks ?? null, m.sort_order]
           );
         }
 
@@ -1720,8 +1873,8 @@ export class CatalogDatabase {
         await conn.query('DELETE FROM album_musicians WHERE album_id = ?', [id]);
         for (const m of clean.musicians) {
           await conn.query(
-            'INSERT INTO album_musicians (album_id, role, name, sort_order) VALUES (?, ?, ?, ?)',
-            [id, m.role, m.name, m.sort_order]
+            'INSERT INTO album_musicians (album_id, role, name, tracks, sort_order) VALUES (?, ?, ?, ?, ?)',
+            [id, m.role, m.name, m.tracks ?? null, m.sort_order]
           );
         }
 
@@ -1815,8 +1968,8 @@ export class CatalogDatabase {
         this.sqliteRun('DELETE FROM album_musicians WHERE album_id = ?', [id]);
         for (const m of clean.musicians) {
           this.sqliteRun(
-            'INSERT INTO album_musicians (album_id, role, name, sort_order) VALUES (?, ?, ?, ?)',
-            [id, m.role, m.name, m.sort_order]
+            'INSERT INTO album_musicians (album_id, role, name, tracks, sort_order) VALUES (?, ?, ?, ?, ?)',
+            [id, m.role, m.name, m.tracks ?? null, m.sort_order]
           );
         }
 

@@ -1,9 +1,13 @@
 {
   "name": "discbase-studio",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.6.0",
   "description": "Album & Song Catalog Workstation with XLSX import/export and MySQL Server integration.",
   "author": "DiscBase Studio <support@discbase.local>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/johnzach199/DiscBase-Studio"
+  },
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -11,7 +15,7 @@
     "build:electron": "vite build && node -e \"const fs=require('fs');fs.mkdirSync('dist-server',{recursive:true});fs.copyFileSync('node_modules/sql.js/dist/sql-wasm.wasm','server/sql-wasm.wasm');fs.copyFileSync('node_modules/sql.js/dist/sql-wasm.wasm','dist-server/sql-wasm.wasm');\" && esbuild server.ts --bundle --platform=node --format=cjs --external:vite --external:electron --outfile=dist-server/server.cjs",
     "start": "NODE_ENV=production node dist-server/server.mjs",
     "preview": "vite preview",
-    "test": "tsx --test src/utils/catalogMath.test.ts",
+    "test": "tsx --test src/utils/catalogMath.test.ts src/utils/versionCheck.test.ts server/db.sqlite.test.ts",
     "clean": "rm -rf dist dist-server dist-electron",
     "lint": "tsc --noEmit"
   },

@@ -132,7 +132,7 @@ export function createEmptyAlbum(): Album {
     cd_digital_playlist_link: '',
     physical_product_web_link: '',
     notes: '',
-    musicians: [{ role: '', name: '', sort_order: 0 }],
+    musicians: [{ role: '', name: '', tracks: null, sort_order: 0 }],
     songs: [createEmptySong(0, 1)],
   };
 }
@@ -191,7 +191,7 @@ export function createSampleTemplateAlbum(): Album {
   const stats = computeAlbumStats(sample.songs);
   sample.total_seconds = stats.totalSeconds;
   sample.album_time = stats.formattedTime;
-  sample.musicians = [{ role: 'Κλαρίνο', name: 'ΟΝΟΜΑ ΜΟΥΣΙΚΟΥ', sort_order: 0 }];
+  sample.musicians = [{ role: 'Κλαρίνο', name: 'ΟΝΟΜΑ ΜΟΥΣΙΚΟΥ', tracks: '1,2', sort_order: 0 }];
   return sample;
 }
 
@@ -250,6 +250,81 @@ function normalizeMatchText(value: string | null | undefined): string {
 
 function normalizeMatchCode(value: string | null | undefined): string {
   return (value || '').trim().toLowerCase().replace(/[\s-]+/g, '');
+}
+
+export function normalizeSearchText(value: string | null | undefined): string {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[ςΣ]/g, 'σ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function normalizeSearchCode(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase().replace(/[\s\-_]+/g, '');
+}
+
+export function matchesAlbumSearch(album: Album, rawQuery: string): boolean {
+  const qText = normalizeSearchText(rawQuery);
+  const qCode = normalizeSearchCode(rawQuery);
+  if (!qText && !qCode) return true;
+
+  const textFields: Array<string | null | undefined> = [
+    album.album_title,
+    album.catalog_number,
+    album.barcode,
+    album.album_artist,
+    album.featured_artists,
+    album.label,
+    album.phonographic_company,
+    album.format,
+    album.album_music_category,
+    album.producer,
+    album.production_company,
+    album.print_design,
+    album.notes,
+  ];
+
+  const codeFields: Array<string | null | undefined> = [
+    album.catalog_number,
+    album.barcode,
+  ];
+
+  for (const s of album.songs || []) {
+    textFields.push(
+      s.track_no,
+      s.title_gr,
+      s.title_en,
+      s.isrc_code,
+      s.iswc_code,
+      s.autodia_code,
+      s.composer_gr,
+      s.composer_en,
+      s.songwriter_gr,
+      s.songwriter_en,
+      s.singer_gr,
+      s.singer_en,
+      s.notes,
+      s.lyrics
+    );
+    codeFields.push(s.isrc_code, s.iswc_code, s.autodia_code);
+  }
+
+  for (const m of album.musicians || []) {
+    textFields.push(m.role, m.name, m.tracks || '');
+  }
+
+  if (qText && textFields.some((f) => normalizeSearchText(f).includes(qText))) {
+    return true;
+  }
+
+  if (qCode.length >= 2 && codeFields.some((f) => normalizeSearchCode(f).includes(qCode))) {
+    return true;
+  }
+
+  return false;
 }
 
 export function areAlbumsIdentical(a: AlbumIdentityLike, b: AlbumIdentityLike): boolean {
@@ -772,7 +847,20 @@ export function parseSpreadsheetRows(rows: unknown[][], defaultDiscNumber = 1): 
     const cells = Array.from(row, cleanStr).filter(Boolean);
     if (cells.length === 0) continue;
 
+    let rowTracksOverride: string | null = null;
+    const remainingCells: string[] = [];
     for (const cell of cells) {
+      const tracksCellMatch = cell.match(/^(?:tracks?|τραγο[υύ]δια|κομμ[αά]τια)\s*:\s*(.*)$/i);
+      if (inMusiciansSection && tracksCellMatch) {
+        const cleanedTracks = tracksCellMatch[1].trim();
+        rowTracksOverride = cleanedTracks || null;
+      } else {
+        remainingCells.push(cell);
+      }
+    }
+
+    let rowAddedMusicianIdx = -1;
+    for (const cell of remainingCells) {
       if (/Έπαιξαν\s*οι\s*μουσικοί|Επαιξαν\s*οι\s*μουσικοί|Musicians/i.test(cell)) {
         inMusiciansSection = true;
         continue;
@@ -810,15 +898,27 @@ export function parseSpreadsheetRows(rows: unknown[][], defaultDiscNumber = 1): 
       const colonIdx = cell.indexOf(':');
       if (inMusiciansSection && colonIdx > 0) {
         const role = cell.slice(0, colonIdx).trim();
-        const name = cell.slice(colonIdx + 1).trim();
+        let name = cell.slice(colonIdx + 1).trim();
+        let inlineTracks: string | null = null;
+        const inlineMatch = name.match(/\s*[\[(](?:tracks?|τραγο[υύ]δια)\s*:\s*([^\]\)]+)[\])]\s*$/i);
+        if (inlineMatch) {
+          inlineTracks = inlineMatch[1].trim() || null;
+          name = name.slice(0, inlineMatch.index).trim();
+        }
         if (role && name && !/^https?/i.test(role)) {
+          rowAddedMusicianIdx = album.musicians.length;
           album.musicians.push({
             role,
             name,
+            tracks: rowTracksOverride ?? inlineTracks ?? null,
             sort_order: album.musicians.length,
           });
         }
       }
+    }
+
+    if (rowTracksOverride !== null && rowAddedMusicianIdx >= 0) {
+      album.musicians[rowAddedMusicianIdx].tracks = rowTracksOverride;
     }
   }
 
@@ -831,7 +931,7 @@ export function parseSpreadsheetRows(rows: unknown[][], defaultDiscNumber = 1): 
   album.album_time = stats.formattedTime;
 
   if (album.musicians.length === 0) {
-    album.musicians = [{ role: '', name: '', sort_order: 0 }];
+    album.musicians = [{ role: '', name: '', tracks: null, sort_order: 0 }];
   }
   if (album.songs.length === 0) {
     album.songs = [createEmptySong(0, defaultDiscNumber)];
@@ -1109,10 +1209,13 @@ export function buildWorkbookMatrix(album: Album): (string | number | null)[][] 
   const activeMusicians = album.musicians.filter((m) => m.role.trim() || m.name.trim());
   activeMusicians.forEach((m, idx) => {
     const line = m.role && m.name ? `${m.role}: ${m.name}` : m.name || m.role;
+    const tracksCell = m.tracks && m.tracks.trim() ? `Tracks: ${m.tracks.trim()}` : '';
     if (idx === 0) {
-      rows.push([line, '', '', `Κατηγορια: ${album.album_music_category || ''}`]);
+      rows.push([line, tracksCell, '', `Κατηγορια: ${album.album_music_category || ''}`]);
     } else if (idx === 1 && album.cd_digital_playlist_link) {
-      rows.push([line, '', '', `CD Digital Playlist link: ${album.cd_digital_playlist_link}`]);
+      rows.push([line, tracksCell, '', `CD Digital Playlist link: ${album.cd_digital_playlist_link}`]);
+    } else if (tracksCell) {
+      rows.push([line, tracksCell]);
     } else {
       rows.push([line]);
     }

@@ -1,28 +1,43 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowRightLeft,
   CheckCircle2,
   Copy,
   Database,
   Download,
+  ExternalLink,
   FileArchive,
   FolderOpen,
   HardDrive,
   PlugZap,
   RefreshCw,
+  Tag,
   Terminal,
   Upload,
 } from 'lucide-react';
-import type { DbStatus, MysqlConfig } from '../types/catalog';
+import type { DbStatus, MysqlConfig, VersionCheckResult } from '../types/catalog';
+import { safeHttpUrl } from '../utils/catalogMath';
+import { compareSemver } from '../utils/versionCheck';
 
 interface MysqlSettingsProps {
   dbStatus: DbStatus | null;
+  currentVersion: string;
+  versionInfo: VersionCheckResult | null;
+  checkingVersion: boolean;
+  onCheckVersion: (force?: boolean) => Promise<void>;
+  onVersionUpdated: (info: VersionCheckResult) => void;
   onStatusUpdated: (status: DbStatus) => Promise<void>;
 }
 
 export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
   dbStatus,
+  currentVersion,
+  versionInfo,
+  checkingVersion,
+  onCheckVersion,
+  onVersionUpdated,
   onStatusUpdated,
 }) => {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.desktopEnv?.isDesktop);
@@ -52,14 +67,18 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedYml, setCopiedYml] = useState(false);
+  const [releaseRepo, setReleaseRepo] = useState('');
+  const [checkOnStartup, setCheckOnStartup] = useState(true);
+  const [savingVersionCfg, setSavingVersionCfg] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
-        const [statusRes, schemaRes, ymlRes] = await Promise.all([
+        const [statusRes, schemaRes, ymlRes, versionRes] = await Promise.all([
           fetch('/api/db/status'),
           fetch('/api/db/schema'),
           fetch('/api/export/github-yml'),
+          fetch('/api/version'),
         ]);
         if (statusRes.ok) {
           const data = await statusRes.json();
@@ -89,11 +108,64 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
           const yData = await ymlRes.json();
           setWorkflowYml(yData.workflowYml || '');
         }
+        if (versionRes.ok) {
+          const vData = (await versionRes.json()) as {
+            repo?: string;
+            checkOnStartup?: boolean;
+          };
+          setReleaseRepo(vData.repo || '');
+          setCheckOnStartup(vData.checkOnStartup !== false);
+        }
       } catch {
         // Ignore initial load error
       }
     })();
   }, []);
+
+  const handleSaveVersionConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingVersionCfg(true);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/version/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: releaseRepo,
+          checkOnStartup,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save version settings');
+      if (data.config?.repo !== undefined) setReleaseRepo(data.config.repo);
+      if (data.checkResult) {
+        onVersionUpdated(data.checkResult as VersionCheckResult);
+        const r = data.checkResult as VersionCheckResult;
+        if (r.isOutdated && r.latestVersion) {
+          setFeedback({
+            ok: false,
+            text: `Update available: DiscBase Studio v${r.latestVersion} is released (installed: v${r.currentVersion}).`,
+          });
+        } else if (r.status === 'up-to-date') {
+          setFeedback({
+            ok: true,
+            text: `DiscBase Studio v${r.currentVersion} is up to date.`,
+          });
+        } else if (r.status === 'error') {
+          setFeedback({
+            ok: false,
+            text: `Saved repository, but update check failed: ${r.error || 'Unable to contact GitHub'}`,
+          });
+        } else {
+          setFeedback({ ok: true, text: 'Update check settings saved.' });
+        }
+      }
+    } catch (err) {
+      setFeedback({ ok: false, text: err instanceof Error ? err.message : 'Unable to save update settings' });
+    } finally {
+      setSavingVersionCfg(false);
+    }
+  };
 
   const payloadPassword = () => {
     if (form.password) return form.password;
@@ -675,8 +747,121 @@ export const MysqlSettings: React.FC<MysqlSettingsProps> = ({
           </form>
         </div>
 
-        {/* Right Column: Desktop Packaging & Database Schemas */}
+        {/* Right Column: App Updates, Desktop Packaging & Database Schemas */}
         <div className="lg:col-span-6 space-y-6">
+          {/* App Version & Release Updates Card */}
+          <form
+            onSubmit={handleSaveVersionConfig}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-blue-700 dark:text-blue-400" />
+                <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                  App Version &amp; Release Updates
+                </h2>
+              </div>
+              <span className="px-2 py-0.5 text-xs font-mono-tabular font-semibold rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                Installed: v{currentVersion}
+              </span>
+            </div>
+
+            {versionInfo?.isOutdated && versionInfo.latestVersion ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-xs text-amber-950 dark:text-amber-100">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>
+                    Newer version <strong>v{versionInfo.latestVersion}</strong> is available (running{' '}
+                    <strong>v{versionInfo.currentVersion}</strong>).
+                  </span>
+                </div>
+                {safeHttpUrl(versionInfo.releaseUrl) && (
+                  <a
+                    href={safeHttpUrl(versionInfo.releaseUrl)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 font-semibold text-white bg-amber-600 hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-400 dark:text-slate-950 rounded transition-colors"
+                  >
+                    <span>Download Release</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            ) : versionInfo?.status === 'up-to-date' ? (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>
+                  {versionInfo.latestVersion &&
+                  compareSemver(versionInfo.currentVersion || currentVersion, versionInfo.latestVersion) > 0 ? (
+                    <>
+                      Up to date: running <strong>v{versionInfo.currentVersion || currentVersion}</strong> (latest GitHub release:{' '}
+                      <strong>v{versionInfo.latestVersion}</strong>).
+                    </>
+                  ) : (
+                    <>
+                      You are running the latest version (<strong>v{versionInfo.latestVersion || currentVersion}</strong>).
+                    </>
+                  )}
+                </span>
+              </div>
+            ) : versionInfo?.status === 'error' ? (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-xs text-red-900 dark:text-red-200">
+                <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+                <span>Update check failed: {versionInfo.error || 'Network unavailable'}</span>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                GitHub Releases builds configure the release repository automatically. For local or web setups, enter your GitHub repository below to enable automatic update warnings.
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="sm:col-span-8">
+                <label htmlFor="release-repo" className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  GitHub Repository (<span className="font-mono-tabular">owner/repo</span>)
+                </label>
+                <input
+                  id="release-repo"
+                  type="text"
+                  value={releaseRepo}
+                  onChange={(e) => setReleaseRepo(e.target.value)}
+                  placeholder="johnzach199/DiscBase-Studio"
+                  className="w-full px-3 py-1.5 text-sm font-mono-tabular bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+              <div className="sm:col-span-4 pb-1.5">
+                <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checkOnStartup}
+                    onChange={(e) => setCheckOnStartup(e.target.checked)}
+                    className="w-4 h-4 rounded accent-blue-700"
+                  />
+                  <span>Check on startup</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="submit"
+                disabled={savingVersionCfg}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-500 rounded-lg cursor-pointer"
+              >
+                <span>{savingVersionCfg ? 'Saving & Checking...' : 'Save & Check Updates'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={checkingVersion}
+                onClick={() => void onCheckVersion(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${checkingVersion ? 'animate-spin' : ''}`} />
+                <span>{checkingVersion ? 'Checking...' : 'Check Now'}</span>
+              </button>
+            </div>
+          </form>
+
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2 min-w-0">

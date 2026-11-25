@@ -1,5 +1,6 @@
 import React from 'react';
-import { Minus, Square, X } from 'lucide-react';
+import { AlertTriangle, Minus, Square, X } from 'lucide-react';
+import type { VersionCheckResult } from '../types/catalog';
 import { ThemeToggle, type ThemeMode } from './ThemeToggle';
 
 export type ActiveTab = 'catalog' | 'editor' | 'import' | 'mysql';
@@ -20,6 +21,9 @@ declare global {
 interface TopBarProps {
   activeTab: ActiveTab;
   theme: ThemeMode;
+  currentVersion: string;
+  versionInfo: VersionCheckResult | null;
+  onVersionClick: () => void;
   onThemeChange: (theme: ThemeMode) => void;
   onNavigate: (tab: ActiveTab) => void;
   onNewAlbum: () => void;
@@ -28,6 +32,9 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({
   activeTab,
   theme,
+  currentVersion,
+  versionInfo,
+  onVersionClick,
   onThemeChange,
   onNavigate,
   onNewAlbum,
@@ -40,6 +47,8 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'mysql', label: 'SQLite & MySQL' },
   ];
 
+  const isOutdated = Boolean(versionInfo?.isOutdated && versionInfo.latestVersion);
+
   return (
     <header className="electron-drag w-full md:sticky md:top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 select-none">
       <div
@@ -47,14 +56,39 @@ export const TopBar: React.FC<TopBarProps> = ({
           isDesktop ? 'pr-0' : 'pr-2.5 sm:pr-6 lg:pr-8'
         }`}
       >
-        <div className="flex items-center gap-4 lg:gap-8 min-w-0">
-          <button
-            type="button"
-            onClick={() => onNavigate('catalog')}
-            className="electron-no-drag text-sm sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-blue-600 rounded"
-          >
-            DiscBase Studio
-          </button>
+        <div className="flex items-center gap-3 lg:gap-6 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigate('catalog')}
+              className="electron-no-drag text-sm sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-blue-600 rounded"
+            >
+              DiscBase Studio
+            </button>
+
+            <button
+              type="button"
+              onClick={onVersionClick}
+              title={
+                isOutdated
+                  ? `Update available: v${versionInfo?.latestVersion} (running v${currentVersion})`
+                  : `Installed version v${currentVersion} — Check for updates`
+              }
+              aria-label={
+                isOutdated
+                  ? `Update available: version ${versionInfo?.latestVersion}`
+                  : `App version ${currentVersion}`
+              }
+              className={`electron-no-drag hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono-tabular font-semibold rounded border transition-colors cursor-pointer ${
+                isOutdated
+                  ? 'bg-amber-100 dark:bg-amber-950/80 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              {isOutdated && <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />}
+              <span>{isOutdated ? `v${currentVersion} → v${versionInfo?.latestVersion}` : `v${currentVersion}`}</span>
+            </button>
+          </div>
 
           <nav aria-label="Main navigation" className="electron-no-drag hidden md:flex items-center gap-4 lg:gap-7">
             {navItems.map((item) => {

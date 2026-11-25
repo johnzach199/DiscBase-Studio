@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS album_musicians (
   album_id INT UNSIGNED NOT NULL,
   role VARCHAR(191) NOT NULL DEFAULT '',
   name VARCHAR(512) NOT NULL DEFAULT '',
+  tracks VARCHAR(255) NULL DEFAULT NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   INDEX idx_musicians_album (album_id),

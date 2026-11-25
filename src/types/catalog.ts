@@ -2,6 +2,7 @@ export interface Musician {
   id?: number;
   role: string;
   name: string;
+  tracks?: string | null;
   sort_order: number;
 }
 
@@ -113,3 +114,28 @@ export interface ValidationResult {
   errors: string[];
   songErrors: Record<number, string[]>;
 }
+
+export type VersionCheckStatus = 'up-to-date' | 'outdated' | 'unconfigured' | 'error';
+
+export interface ReleaseAssetInfo {
+  name: string;
+  downloadUrl: string;
+  size?: number;
+}
+
+export interface VersionCheckResult {
+  currentVersion: string;
+  latestVersion: string | null;
+  isOutdated: boolean;
+  status: VersionCheckStatus;
+  repo: string;
+  checkOnStartup: boolean;
+  releaseName?: string;
+  releaseUrl?: string;
+  publishedAt?: string;
+  releaseNotes?: string;
+  assets?: ReleaseAssetInfo[];
+  checkedAt: string;
+  error?: string;
+}
+
