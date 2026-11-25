@@ -387,6 +387,11 @@ test('Apple .numbers codec round-trips 23-column multi-CD album with full timest
   assert.equal(internals.tileStorageVersion, 5);
   assert.equal(internals.tileStorageFlag, 1);
   assert.ok(internals.tileRowVersions.every((v) => v === 5));
+  assert.equal(internals.hasPropertiesPlist, true);
+  assert.equal(internals.hasBuildVersionHistory, true);
+  assert.equal(internals.hasDocumentIdentifier, true);
+  assert.equal(internals.hasSheetJsMarker, false);
+  assert.ok(internals.calcEngineBytes > 100);
 
   const xlsxMod =
     (XLSX as unknown as { default?: typeof XLSX }).default?.read
@@ -455,6 +460,37 @@ test('Apple .numbers codec enables wide_offsets cleanly for wide rows exceeding 
   const rows = xlsxMod.utils.sheet_to_json<string[]>(wb.Sheets['Wide Row'], { header: 1 });
   assert.equal(rows[0][0], 'val-0');
   assert.equal(rows[0][hugeCols - 1], `val-${hugeCols - 1}`);
+});
+
+test('Apple .numbers codec splits >256 rows into multiple tiles and frames >64KB IWA streams across Snappy chunks', () => {
+  const longGreekLyric = '0:10 [μουσική] Δεν θέλω πια να σε δω γιατί μου έμεινε ο καημός και το δάκρυ '.repeat(5);
+  const totalRows = 305;
+  const rows: Array<Array<string | number>> = [];
+  for (let r = 0; r < totalRows; r++) {
+    rows.push([r + 1, `ΤΡΑΓΟΥΔΙ-${r}`, `${longGreekLyric} #${r}`]);
+  }
+  const buf = buildNumbersBuffer(rows, 'MultiTile');
+  const internals = inspectNumbersInternals(buf);
+  assert.equal(internals.numRows, totalRows);
+  assert.equal(internals.numCols, 3);
+  assert.equal(internals.tileCount, 2);
+  assert.equal(internals.cruidsRowCount, totalRows);
+  assert.equal(internals.hasPropertiesPlist, true);
+  assert.equal(internals.hasBuildVersionHistory, true);
+  assert.equal(internals.hasDocumentIdentifier, true);
+  assert.equal(internals.hasSheetJsMarker, false);
+
+  const xlsxMod =
+    (XLSX as unknown as { default?: typeof XLSX }).default?.read
+      ? (XLSX as unknown as { default: typeof XLSX }).default
+      : XLSX;
+  const wb = xlsxMod.read(buf, { type: 'buffer' });
+  const parsedRows = xlsxMod.utils.sheet_to_json<Array<string | number>>(wb.Sheets['MultiTile'], { header: 1 });
+  assert.equal(parsedRows.length, totalRows);
+  assert.equal(parsedRows[0][1], 'ΤΡΑΓΟΥΔΙ-0');
+  assert.equal(parsedRows[256][1], 'ΤΡΑΓΟΥΔΙ-256');
+  assert.equal(parsedRows[304][1], 'ΤΡΑΓΟΥΔΙ-304');
+  assert.ok(String(parsedRows[304][2]).endsWith('#304'));
 });
 
 test('CatalogDatabase SQLite supports replace-existing deduplication and migrates legacy DB missing disc_number & lyrics', async () => {

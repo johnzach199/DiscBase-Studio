@@ -1,7 +1,7 @@
 {
   "name": "discbase-studio",
   "private": true,
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Album & Song Catalog Workstation with XLSX import/export and MySQL Server integration.",
   "author": "DiscBase Studio <support@discbase.local>",
   "repository": {

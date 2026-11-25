@@ -1,9 +1,16 @@
 import * as XLSX from 'xlsx';
-import XLSX_ZAHL_PAYLOAD from 'xlsx/dist/xlsx.zahl.mjs';
+import { NUMBERS_TEMPLATE_BASE64 } from './numbersTemplate';
+import { buildZipArchive } from './zipBuilder';
 
 const CFB_LIB: typeof XLSX.CFB =
   XLSX.CFB ||
   (XLSX as unknown as { default?: { CFB?: typeof XLSX.CFB } }).default?.CFB!;
+
+const MAX_TILE_SIZE = 256;
+const MAX_IWA_SNAPPY_CHUNK = 65536;
+const DEFAULT_ROW_HEIGHT = 20.0;
+const DEFAULT_COLUMN_WIDTH = 120.0;
+const DEFAULT_PRE_BNC_BYTES = encodeUtf8('🤠');
 
 interface ProtoField {
   type: number;
@@ -43,6 +50,12 @@ function encodeUtf8(str: string): Uint8Array {
   return new TextEncoder().encode(str);
 }
 
+function float32LE(value: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  u8toDataview(buf).setFloat32(0, value, true);
+  return buf;
+}
+
 function parseVarint49(buf: Uint8Array, ptr: [number] = [0]): number {
   let l = ptr[0];
   let usz = buf[l] & 127;
@@ -72,42 +85,25 @@ function parseVarint49(buf: Uint8Array, ptr: [number] = [0]): number {
 }
 
 function writeVarint49(v: number): Uint8Array {
-  const usz = new Uint8Array(7);
-  usz[0] = v & 127;
-  let L = 1;
-  let cur = v;
-  sz: if (cur > 127) {
-    usz[L - 1] |= 128;
+  const bytes: number[] = [];
+  let cur = Math.max(0, Math.floor(v));
+  while (cur > 127) {
+    bytes.push((cur % 128) | 128);
     cur = Math.floor(cur / 128);
-    usz[L] = cur & 127;
-    ++L;
-    if (cur <= 127) break sz;
-    usz[L - 1] |= 128;
-    cur = Math.floor(cur / 128);
-    usz[L] = cur & 127;
-    ++L;
-    if (cur <= 127) break sz;
-    usz[L - 1] |= 128;
-    cur = Math.floor(cur / 128);
-    usz[L] = cur & 127;
-    ++L;
-    if (cur <= 127) break sz;
-    usz[L - 1] |= 128;
-    cur = Math.floor(cur / 128);
-    usz[L] = cur & 127;
-    ++L;
-    if (cur <= 127) break sz;
-    usz[L - 1] |= 128;
-    cur = Math.floor(cur / 128);
-    usz[L] = cur & 127;
-    ++L;
-    if (cur <= 127) break sz;
-    usz[L - 1] |= 128;
-    cur = Math.floor(cur / 128);
-    usz[L] = cur & 127;
-    ++L;
   }
-  return usz.slice(0, L);
+  bytes.push(cur % 128);
+  return new Uint8Array(bytes);
+}
+
+function writeVarintBigInt(v: bigint): Uint8Array {
+  const bytes: number[] = [];
+  let cur = v < 0n ? 0n : v;
+  while (cur > 127n) {
+    bytes.push(Number(cur & 127n) | 128);
+    cur >>= 7n;
+  }
+  bytes.push(Number(cur));
+  return new Uint8Array(bytes);
 }
 
 function varintToI32(buf: Uint8Array): number {
@@ -245,7 +241,8 @@ function compressIwaFile(buf: Uint8Array): Uint8Array {
   const out: Uint8Array[] = [];
   let l = 0;
   while (l < buf.length) {
-    const c = Math.min(buf.length - l, 268435455);
+    // Apple iWork readers enforce 65,536-byte max uncompressed Snappy chunks
+    const c = Math.min(buf.length - l, MAX_IWA_SNAPPY_CHUNK);
     const frame = new Uint8Array(4);
     out.push(frame);
     const usz = writeVarint49(c);
@@ -260,20 +257,9 @@ function compressIwaFile(buf: Uint8Array): Uint8Array {
     } else if (c <= 65536) {
       L += 3;
       out.push(new Uint8Array([244, (c - 1) & 255, ((c - 1) >> 8) & 255]));
-    } else if (c <= 16777216) {
+    } else {
       L += 4;
       out.push(new Uint8Array([248, (c - 1) & 255, ((c - 1) >> 8) & 255, ((c - 1) >> 16) & 255]));
-    } else {
-      L += 5;
-      out.push(
-        new Uint8Array([
-          252,
-          (c - 1) & 255,
-          ((c - 1) >> 8) & 255,
-          ((c - 1) >> 16) & 255,
-          ((c - 1) >>> 24) & 255,
-        ])
-      );
     }
     out.push(buf.slice(l, l + c));
     L += c;
@@ -342,6 +328,16 @@ function parseTspReference(buf: Uint8Array): number {
   return parseVarint49(pb[1][0].data);
 }
 
+function writeTspReference(id: number): Uint8Array {
+  const msg: ProtoMessage = [];
+  msg[1] = [{ type: 0, data: writeVarint49(id) }];
+  return writeShallow(msg);
+}
+
+function writePackedVarints(values: number[]): Uint8Array {
+  return u8concat(values.map((v) => writeVarint49(v)));
+}
+
 function writeDecimal128LE(buf: Uint8Array, offset: number, value: number): void {
   if (!Number.isFinite(value) || value === 0) {
     const exp = 6176;
@@ -360,7 +356,6 @@ function writeDecimal128LE(buf: Uint8Array, offset: number, value: number): void
   let digits = dotIdx === -1 ? str : str.slice(0, dotIdx) + str.slice(dotIdx + 1);
   let scale = dotIdx === -1 ? 0 : str.length - dotIdx - 1;
 
-  // Trim any trailing fractional zeros
   while (scale > 0 && digits.endsWith('0')) {
     digits = digits.slice(0, -1);
     scale -= 1;
@@ -380,7 +375,10 @@ function writeDecimal128LE(buf: Uint8Array, offset: number, value: number): void
   }
 }
 
-function writeNewStorage(cell: { t: 's' | 'n' | 'b'; v: string | number | boolean }, sstIndex: Map<string, number>): Uint8Array {
+function writeNewStorage(
+  cell: { t: 's' | 'n' | 'b'; v: string | number | boolean },
+  sstIndex: Map<string, number>
+): Uint8Array {
   const out = new Uint8Array(32);
   const dv = u8toDataview(out);
   let l = 12;
@@ -405,54 +403,23 @@ function writeNewStorage(cell: { t: 's' | 'n' | 'b'; v: string | number | boolea
     l += 4;
   }
   dv.setUint32(8, flags, true);
+  // Every v5 record (16, 20, 28 bytes) is already 4-byte aligned for wide offsets
   return out.slice(0, l);
 }
 
-function writeOldStorage(cell: { t: 's' | 'n' | 'b'; v: string | number | boolean }, sstIndex: Map<string, number>): Uint8Array {
-  const out = new Uint8Array(32);
-  const dv = u8toDataview(out);
-  let l = 12;
-  let flags = 0;
-  out[0] = 3;
-  if (cell.t === 'n') {
-    out[2] = 2;
-    dv.setFloat64(l, Number(cell.v), true);
-    flags |= 32;
-    l += 8;
-  } else if (cell.t === 'b') {
-    out[2] = 6;
-    dv.setFloat64(l, cell.v ? 1 : 0, true);
-    flags |= 32;
-    l += 8;
-  } else {
-    const idx = sstIndex.get(String(cell.v));
-    if (idx === undefined) throw new Error('String missing from Numbers SST');
-    out[2] = 3;
-    dv.setUint32(l, idx, true);
-    flags |= 16;
-    l += 4;
-  }
-  dv.setUint32(4, flags, true);
-  return out.slice(0, l);
-}
-
-function writeTileRow(
-  tri: ProtoMessage,
+function buildTileRowInfo(
+  rowIndexInTile: number,
   row: Array<string | number | boolean | null | undefined>,
   numCols: number,
   sstIndex: Map<string, number>
-): number {
-  const offsetByteLen = Math.max(tri[7]?.[0]?.data?.length || 510, numCols * 2);
-  const newOffsets = new Uint8Array(offsetByteLen);
-  const oldOffsets = new Uint8Array(offsetByteLen);
-  newOffsets.fill(0xff);
-  oldOffsets.fill(0xff);
+): { data: Uint8Array; cellCount: number } {
+  const offsets = new Uint8Array(numCols * 2);
+  offsets.fill(0xff);
+  const dv = u8toDataview(offsets);
 
-  const dvNew = u8toDataview(newOffsets);
-  const dvOld = u8toDataview(oldOffsets);
-  const entries: Array<{ col: number; newBuf: Uint8Array; oldBuf: Uint8Array }> = [];
-  let totalNewLen = 0;
-  let totalOldLen = 0;
+  const cellPayloads: Uint8Array[] = [];
+  let currentOffset = 0;
+  let cellCount = 0;
 
   for (let c = 0; c < numCols; c++) {
     const val = row[c];
@@ -468,63 +435,35 @@ function writeTileRow(
       cellObj = { t: 's', v: String(val) };
     }
 
-    const newBuf = writeNewStorage(cellObj, sstIndex);
-    const oldBuf = writeOldStorage(cellObj, sstIndex);
-    entries.push({ col: c, newBuf, oldBuf });
-    totalNewLen += newBuf.length;
-    totalOldLen += oldBuf.length;
-  }
-
-  const useWideOffsets = totalNewLen > 65530 || totalOldLen > 65530;
-  const pad4 = (buf: Uint8Array): Uint8Array => {
-    const rem = buf.length & 3;
-    if (rem === 0) return buf;
-    const padded = new Uint8Array(buf.length + (4 - rem));
-    padded.set(buf);
-    return padded;
-  };
-
-  let lastOffset = 0;
-  let lastOldOffset = 0;
-  const newPayloads: Uint8Array[] = [];
-  const oldPayloads: Uint8Array[] = [];
-  let cnt = 0;
-
-  for (const item of entries) {
-    const newBuf = useWideOffsets ? pad4(item.newBuf) : item.newBuf;
-    const oldBuf = useWideOffsets ? pad4(item.oldBuf) : item.oldBuf;
-    const encodedNewOffset = useWideOffsets ? lastOffset / 4 : lastOffset;
-    const encodedOldOffset = useWideOffsets ? lastOldOffset / 4 : lastOldOffset;
-    if (encodedNewOffset >= 65535 || encodedOldOffset >= 65535) {
+    const cellBuf = writeNewStorage(cellObj, sstIndex);
+    const wideOffset = currentOffset >> 2;
+    if (wideOffset >= 65535) {
       break;
     }
-
-    dvNew.setUint16(item.col * 2, encodedNewOffset, true);
-    dvOld.setUint16(item.col * 2, encodedOldOffset, true);
-    newPayloads.push(newBuf);
-    oldPayloads.push(oldBuf);
-    lastOffset += newBuf.length;
-    lastOldOffset += oldBuf.length;
-    cnt++;
+    dv.setUint16(c * 2, wideOffset, true);
+    cellPayloads.push(cellBuf);
+    currentOffset += cellBuf.length;
+    cellCount++;
   }
 
-  tri[2][0].data = writeVarint49(cnt);
+  const tri: ProtoMessage = [];
+  tri[1] = [{ type: 0, data: writeVarint49(rowIndexInTile) }];
+  tri[2] = [{ type: 0, data: writeVarint49(cellCount) }];
+  tri[3] = [{ type: 2, data: DEFAULT_PRE_BNC_BYTES }];
+  tri[4] = [{ type: 2, data: DEFAULT_PRE_BNC_BYTES }];
   tri[5] = [{ type: 0, data: writeVarint49(5) }];
-  tri[6] = [{ type: 2, data: u8concat(newPayloads) }];
-  tri[7] = [{ type: 2, data: newOffsets }];
-  tri[3] = [{ type: 2, data: u8concat(oldPayloads) }];
-  tri[4] = [{ type: 2, data: oldOffsets }];
-  if (useWideOffsets) {
-    tri[8] = [{ type: 0, data: writeVarint49(1) }];
-  } else {
-    delete tri[8];
-  }
-  return cnt;
+  tri[6] = [{ type: 2, data: u8concat(cellPayloads) }];
+  tri[7] = [{ type: 2, data: offsets }];
+  tri[8] = [{ type: 0, data: writeVarint49(1) }];
+
+  return { data: writeShallow(tri), cellCount };
 }
 
 /**
- * Serializes a 2D spreadsheet matrix into an Apple `.numbers` ZIP/IWA archive Buffer.
- * Supports unlimited columns (all 23+ DiscBase columns) and full UTF-8 Greek/multi-line lyrics.
+ * Serializes a 2D spreadsheet matrix into a genuine Apple `.numbers` ZIP/IWA archive Buffer.
+ * Uses a complete Apple Numbers 14+ document container, multi-tile row splitting (256 rows/tile),
+ * 64KB Snappy framing chunks, synced ColumnRowUIDMapArchive & CalculationEngine dependency ranges,
+ * v5 cell buffers with wide offsets, and clean PKZIP headers.
  */
 export function buildNumbersBuffer(
   matrix: Array<Array<string | number | boolean | null | undefined>>,
@@ -561,61 +500,79 @@ export function buildNumbersBuffer(
     }
   }
 
-  if (!CFB_LIB?.read || !CFB_LIB?.find || !CFB_LIB?.write) {
-    throw new Error('SheetJS CFB codec is unavailable.');
+  if (!CFB_LIB?.read) {
+    throw new Error('SheetJS CFB reader is unavailable.');
   }
 
-  const cfb = CFB_LIB.read(XLSX_ZAHL_PAYLOAD, { type: 'base64' });
-  const locations = new Map<number, string>();
+  const templateBuf = Buffer.from(NUMBERS_TEMPLATE_BASE64, 'base64');
+  const cfb = CFB_LIB.read(templateBuf, { type: 'buffer' });
+
+  // Extract all real package files cleanly by relative path (without CFB's "Root Entry/" prefix)
+  const fileMap = new Map<string, Buffer>();
+  const objectLocation = new Map<number, string>();
+  let maxArchiveId = 0;
 
   cfb.FileIndex.forEach((fi: { type: number; name: string; content: number[] | Uint8Array }, idx: number) => {
-    const fp = cfb.FullPaths[idx];
-    if (fi.type !== 2 || !/\.iwa$/i.test(fi.name)) return;
-    const raw = decompressIwaFile(new Uint8Array(fi.content));
-    const archives = parseIwaFile(raw);
-    for (const ar of archives) {
-      locations.set(ar.id, fp);
+    if (fi.type !== 2) return;
+    const rawPath = (cfb.FullPaths[idx] || '').replace(/^Root Entry\//, '');
+    if (!rawPath || rawPath.startsWith('\u0001')) return;
+    const bytes = Buffer.from(fi.content);
+    fileMap.set(rawPath, bytes);
+
+    if (/\.iwa$/i.test(rawPath)) {
+      const raw = decompressIwaFile(new Uint8Array(bytes));
+      const archives = parseIwaFile(raw);
+      for (const ar of archives) {
+        objectLocation.set(ar.id, rawPath);
+        if (ar.id > maxArchiveId) maxArchiveId = ar.id;
+      }
     }
   });
 
-  const loadEntry = (id: number) => {
-    const loc = locations.get(id);
-    if (!loc) throw new Error(`Missing IWA object ${id} in Numbers template`);
-    const entry = CFB_LIB.find(cfb, loc);
-    if (!entry) throw new Error(`Missing CFB entry ${loc}`);
-    const archives = parseIwaFile(decompressIwaFile(new Uint8Array(entry.content)));
+  const iwaCache = new Map<string, IwaArchive[]>();
+  const loadIwaFile = (zipPath: string): IwaArchive[] => {
+    const existing = iwaCache.get(zipPath);
+    if (existing) return existing;
+    const rawZipBytes = fileMap.get(zipPath);
+    if (!rawZipBytes) throw new Error(`Missing template IWA entry ${zipPath}`);
+    const parsed = parseIwaFile(decompressIwaFile(new Uint8Array(rawZipBytes)));
+    iwaCache.set(zipPath, parsed);
+    return parsed;
+  };
+
+  const loadObject = (id: number) => {
+    const zipPath = objectLocation.get(id);
+    if (!zipPath) throw new Error(`Missing IWA object ${id} in Numbers template`);
+    const archives = loadIwaFile(zipPath);
     const packet = archives.find((a) => a.id === id);
-    if (!packet) throw new Error(`Missing packet ${id} inside ${loc}`);
-    return { entry, archives, packet };
+    if (!packet) throw new Error(`Missing packet ${id} inside ${zipPath}`);
+    return { zipPath, archives, packet };
   };
 
   // Document -> Sheet -> TableInfo -> TableModel
-  const docLoaded = loadEntry(1);
+  const docLoaded = loadObject(1);
   const docPb = parseShallow(docLoaded.packet.messages[0].data);
   const sheetId = parseTspReference(docPb[1][0].data);
 
-  const sheetLoaded = loadEntry(sheetId);
+  const sheetLoaded = loadObject(sheetId);
   const sheetPb = parseShallow(sheetLoaded.packet.messages[0].data);
-  if (sheetName.trim()) {
-    sheetPb[1] = [{ type: 2, data: encodeUtf8(sheetName.trim().slice(0, 64)) }];
-    sheetLoaded.packet.messages[0].data = writeShallow(sheetPb);
-    const updatedSheetBytes = compressIwaFile(writeIwaFile(sheetLoaded.archives));
-    sheetLoaded.entry.content = updatedSheetBytes as unknown as number[];
-    sheetLoaded.entry.size = updatedSheetBytes.length;
-  }
+  const cleanSheetName = (sheetName || '').trim().slice(0, 64) || 'Sheet 1';
+  sheetPb[1] = [{ type: 2, data: encodeUtf8(cleanSheetName) }];
+  sheetLoaded.packet.messages[0].data = writeShallow(sheetPb);
 
   const tableInfoId = parseTspReference(sheetPb[2][0].data);
-  const tableInfoLoaded = loadEntry(tableInfoId);
+  const tableInfoLoaded = loadObject(tableInfoId);
   const tableInfoPb = parseShallow(tableInfoLoaded.packet.messages[0].data);
   const tableModelId = parseTspReference(tableInfoPb[2][0].data);
 
-  const modelLoaded = loadEntry(tableModelId);
+  const modelLoaded = loadObject(tableModelId);
   const pb = parseShallow(modelLoaded.packet.messages[0].data);
 
-  pb[6][0].data = writeVarint49(numRows);
-  pb[7][0].data = writeVarint49(numCols);
+  pb[6] = [{ type: 0, data: writeVarint49(numRows) }];
+  pb[7] = [{ type: 0, data: writeVarint49(numCols) }];
+  pb[8] = [{ type: 2, data: encodeUtf8(cleanSheetName) }];
 
-  // Populate ColumnRowUIDMapArchive (in the same CalculationEngine.iwa archive set) so Numbers 14-16 maps all rows/cols
+  // Populate ColumnRowUIDMapArchive with strictly ascending 128-bit TSP.UUIDs
   const cruidsRef = pb[46]?.[0]?.data ? parseTspReference(pb[46][0].data) : null;
   if (cruidsRef) {
     const cruidsPacket = modelLoaded.archives.find((a) => a.id === cruidsRef);
@@ -626,9 +583,8 @@ export function buildNumbersBuffer(
       cruids[3] = [];
       for (let c = 0; c < numCols; c++) {
         const uuid: ProtoMessage = [];
-        const uidVal = writeVarint49(c + 420690);
-        uuid[1] = [{ type: 0, data: uidVal }];
-        uuid[2] = [{ type: 0, data: uidVal }];
+        uuid[1] = [{ type: 0, data: writeVarintBigInt(0x8000000000420690n + BigInt(c)) }];
+        uuid[2] = [{ type: 0, data: writeVarintBigInt(0x1000000000000001n + BigInt(c)) }];
         cruids[1].push({ type: 2, data: writeShallow(uuid) });
         const idxBytes = writeVarint49(c);
         cruids[2].push({ type: 0, data: idxBytes });
@@ -639,9 +595,8 @@ export function buildNumbersBuffer(
       cruids[6] = [];
       for (let r = 0; r < numRows; r++) {
         const uuid: ProtoMessage = [];
-        const uidVal = writeVarint49(r + 726270);
-        uuid[1] = [{ type: 0, data: uidVal }];
-        uuid[2] = [{ type: 0, data: uidVal }];
+        uuid[1] = [{ type: 0, data: writeVarintBigInt(0x8000000000726270n + BigInt(r)) }];
+        uuid[2] = [{ type: 0, data: writeVarintBigInt(0x2000000000000001n + BigInt(r)) }];
         cruids[4].push({ type: 2, data: writeShallow(uuid) });
         const idxBytes = writeVarint49(r);
         cruids[5].push({ type: 0, data: idxBytes });
@@ -651,53 +606,90 @@ export function buildNumbersBuffer(
     }
   }
 
-  const store = parseShallow(pb[4][0].data);
-  store[7][0].data = writeVarint49(numRows);
+  // Update FormulaOwnerDependenciesArchive (mtype=4008, owner_kind=6, formula_owner=tableInfoId)
+  for (const ar of modelLoaded.archives) {
+    const mtype = varintToI32(ar.messages[0].meta[1][0].data);
+    if (mtype !== 4008) continue;
+    const depPb = parseShallow(ar.messages[0].data);
+    const ownerKind = depPb[3]?.[0] ? varintToI32(depPb[3][0].data) : 0;
+    const ownerRef = depPb[11]?.[0] ? parseTspReference(depPb[11][0].data) : 0;
+    if (ownerKind === 6 || ownerRef === tableInfoId) {
+      const rangeMsg: ProtoMessage = [];
+      rangeMsg[1] = [{ type: 0, data: writeVarint49(0) }];
+      rangeMsg[2] = [{ type: 0, data: writeVarint49(0) }];
+      rangeMsg[3] = [{ type: 0, data: writeVarint49(numCols - 1) }];
+      rangeMsg[4] = [{ type: 0, data: writeVarint49(numRows - 1) }];
+      const encodedRange = writeShallow(rangeMsg);
+      for (const spanField of [7, 8]) {
+        if (depPb[spanField]?.[0]) {
+          const spanPb = parseShallow(depPb[spanField][0].data);
+          spanPb[2] = [{ type: 2, data: encodedRange }];
+          spanPb[3] = [{ type: 2, data: encodedRange }];
+          depPb[spanField][0].data = writeShallow(spanPb);
+        }
+      }
+      ar.messages[0].data = writeShallow(depPb);
+    }
+  }
 
-  // Update Row Headers
+  const store = parseShallow(pb[4][0].data);
+
+  // Update Row Headers with explicit non-zero size (20.0pt) and populated cell counts
   const rowHeaders = parseShallow(store[1][0].data);
   const rowHeaderRef = parseTspReference(rowHeaders[2][0].data);
-  const rowHeaderLoaded = loadEntry(rowHeaderRef);
+  const rowHeaderLoaded = loadObject(rowHeaderRef);
   {
     const baseBucket = parseShallow(rowHeaderLoaded.packet.messages[0].data);
-    const templateItem = baseBucket[2][0];
+    baseBucket[1] = [{ type: 0, data: writeVarint49(1) }];
     baseBucket[2] = [];
+    const defaultHeight = float32LE(DEFAULT_ROW_HEIGHT);
     for (let r = 0; r < numRows; r++) {
-      const bucket = parseShallow(templateItem.data);
-      bucket[1][0].data = writeVarint49(r);
-      bucket[4][0].data = writeVarint49(numCols);
-      baseBucket[2].push({ type: templateItem.type, data: writeShallow(bucket) });
+      let populated = 0;
+      const row = normalizedRows[r];
+      for (let c = 0; c < numCols; c++) {
+        const v = row[c];
+        if (v !== null && v !== undefined && v !== '') populated++;
+      }
+      const header: ProtoMessage = [];
+      header[1] = [{ type: 0, data: writeVarint49(r) }];
+      header[2] = [{ type: 5, data: defaultHeight }];
+      header[3] = [{ type: 0, data: writeVarint49(0) }];
+      header[4] = [{ type: 0, data: writeVarint49(populated) }];
+      baseBucket[2].push({ type: 2, data: writeShallow(header) });
     }
     rowHeaderLoaded.packet.messages[0].data = writeShallow(baseBucket);
-    const compressed = compressIwaFile(writeIwaFile(rowHeaderLoaded.archives));
-    rowHeaderLoaded.entry.content = compressed as unknown as number[];
-    rowHeaderLoaded.entry.size = compressed.length;
   }
 
-  // Update Column Headers
+  // Update Column Headers with explicit non-zero size (120.0pt) and populated cell counts
   const colHeaderRef = parseTspReference(store[2][0].data);
-  const colHeaderLoaded = loadEntry(colHeaderRef);
+  const colHeaderLoaded = loadObject(colHeaderRef);
   {
     const baseBucket = parseShallow(colHeaderLoaded.packet.messages[0].data);
-    const templateItem = baseBucket[2][0];
+    baseBucket[1] = [{ type: 0, data: writeVarint49(1) }];
     baseBucket[2] = [];
+    const defaultWidth = float32LE(DEFAULT_COLUMN_WIDTH);
     for (let c = 0; c < numCols; c++) {
-      const bucket = parseShallow(templateItem.data);
-      bucket[1][0].data = writeVarint49(c);
-      bucket[4][0].data = writeVarint49(numRows);
-      baseBucket[2].push({ type: templateItem.type, data: writeShallow(bucket) });
+      let populated = 0;
+      for (let r = 0; r < numRows; r++) {
+        const v = normalizedRows[r][c];
+        if (v !== null && v !== undefined && v !== '') populated++;
+      }
+      const header: ProtoMessage = [];
+      header[1] = [{ type: 0, data: writeVarint49(c) }];
+      header[2] = [{ type: 5, data: defaultWidth }];
+      header[3] = [{ type: 0, data: writeVarint49(0) }];
+      header[4] = [{ type: 0, data: writeVarint49(populated) }];
+      baseBucket[2].push({ type: 2, data: writeShallow(header) });
     }
     colHeaderLoaded.packet.messages[0].data = writeShallow(baseBucket);
-    const compressed = compressIwaFile(writeIwaFile(colHeaderLoaded.archives));
-    colHeaderLoaded.entry.content = compressed as unknown as number[];
-    colHeaderLoaded.entry.size = compressed.length;
   }
 
-  // Update Shared String Table (1-based IDs + accurate nextListID + reference counts)
+  // Update Shared String Table (1-based IDs + nextListID + reference counts)
   const sstRef = parseTspReference(store[4][0].data);
-  const sstLoaded = loadEntry(sstRef);
+  const sstLoaded = loadObject(sstRef);
   {
     const sstData = parseShallow(sstLoaded.packet.messages[0].data);
+    sstData[1] = [{ type: 0, data: writeVarint49(1) }];
     sstData[2] = [{ type: 0, data: writeVarint49(sst.length + 1) }];
     sstData[3] = sst.map((str, i) => {
       const id = i + 1;
@@ -708,52 +700,133 @@ export function buildNumbersBuffer(
       return { type: 2, data: writeShallow(entryMsg) };
     });
     sstLoaded.packet.messages[0].data = writeShallow(sstData);
-    const compressed = compressIwaFile(writeIwaFile(sstLoaded.archives));
-    sstLoaded.entry.content = compressed as unknown as number[];
-    sstLoaded.entry.size = compressed.length;
   }
 
-  // Update Tile(s) preserving storage_version = 5 (tileData[6]) and storage = 1 (tileData[7])
-  const tile = parseShallow(store[3][0].data);
-  const tileEntryTemplate = tile[1][0];
-  delete tile[2];
-  tile[1] = [tileEntryTemplate];
-  const tl = parseShallow(tileEntryTemplate.data);
-  const tileRef = parseTspReference(tl[2][0].data);
-  const tileLoaded = loadEntry(tileRef);
-  {
-    const tileData = parseShallow(tileLoaded.packet.messages[0].data);
-    const rowLoadTemplate = new Uint8Array(tileData[5][0].data);
-    tileData[5] = [];
-    let cellCount = 0;
-    for (let r = 0; r < numRows; r++) {
-      const tilerow = parseShallow(rowLoadTemplate);
-      cellCount += writeTileRow(tilerow, normalizedRows[r], numCols, sstIndex);
-      tilerow[1][0].data = writeVarint49(r);
-      tileData[5].push({ type: 2, data: writeShallow(tilerow) });
+  // Split rows into 256-row Tiles (Tile 0 reuses template Tile, Tiles 1+ allocated & registered in PackageMetadata)
+  const tileWrap = parseShallow(store[3][0].data);
+  const firstTileEntry = parseShallow(tileWrap[1][0].data);
+  const baseTileId = parseTspReference(firstTileEntry[2][0].data);
+  const baseTileLoaded = loadObject(baseTileId);
+  const tileMetaTemplate = baseTileLoaded.packet.messages[0].meta;
+
+  const metadataLoaded = loadObject(2);
+  const pkgMeta = parseShallow(metadataLoaded.packet.messages[0].data);
+  let nextObjectId = Math.max(
+    pkgMeta[1]?.[0] ? parseVarint49(pkgMeta[1][0].data) : maxArchiveId,
+    maxArchiveId
+  ) + 1;
+
+  const numTiles = Math.ceil(numRows / MAX_TILE_SIZE);
+  const tileRefsField: ProtoField[] = [];
+  const rowTileTreeNodes: ProtoField[] = [];
+  const newTileIds: number[] = [];
+
+  for (let tileIdx = 0; tileIdx < numTiles; tileIdx++) {
+    const rowStart = tileIdx * MAX_TILE_SIZE;
+    const rowEnd = Math.min(numRows, rowStart + MAX_TILE_SIZE);
+    const tileRowsCount = rowEnd - rowStart;
+
+    const rowInfos: ProtoField[] = [];
+    for (let r = rowStart; r < rowEnd; r++) {
+      const { data: triData } = buildTileRowInfo(r - rowStart, normalizedRows[r], numCols, sstIndex);
+      rowInfos.push({ type: 2, data: triData });
     }
-    tileData[1] = [{ type: 0, data: writeVarint49(numCols) }];
-    tileData[2] = [{ type: 0, data: writeVarint49(numRows) }];
-    tileData[3] = [{ type: 0, data: writeVarint49(cellCount) }];
-    tileData[4] = [{ type: 0, data: writeVarint49(numRows) }];
-    tileData[6] = [{ type: 0, data: writeVarint49(5) }];
-    tileData[7] = [{ type: 0, data: writeVarint49(1) }];
-    tileLoaded.packet.messages[0].data = writeShallow(tileData);
-    const compressed = compressIwaFile(writeIwaFile(tileLoaded.archives));
-    tileLoaded.entry.content = compressed as unknown as number[];
-    tileLoaded.entry.size = compressed.length;
+
+    const tileMsg: ProtoMessage = [];
+    tileMsg[1] = [{ type: 0, data: writeVarint49(0) }];
+    tileMsg[2] = [{ type: 0, data: writeVarint49(0) }];
+    tileMsg[3] = [{ type: 0, data: writeVarint49(0) }];
+    tileMsg[4] = [{ type: 0, data: writeVarint49(tileRowsCount) }];
+    tileMsg[5] = rowInfos;
+    tileMsg[6] = [{ type: 0, data: writeVarint49(5) }];
+    tileMsg[7] = [{ type: 0, data: writeVarint49(1) }];
+    tileMsg[8] = [{ type: 0, data: writeVarint49(1) }];
+    const encodedTile = writeShallow(tileMsg);
+
+    let tileArchiveId: number;
+    if (tileIdx === 0) {
+      tileArchiveId = baseTileId;
+      baseTileLoaded.packet.messages[0].data = encodedTile;
+    } else {
+      tileArchiveId = nextObjectId++;
+      newTileIds.push(tileArchiveId);
+      const cloneMeta: ProtoMessage = [];
+      tileMetaTemplate.forEach((arr, idx) => {
+        if (!arr) return;
+        cloneMeta[idx] = arr.map((f) => ({ type: f.type, data: new Uint8Array(f.data) }));
+      });
+      const newArchive: IwaArchive = {
+        id: tileArchiveId,
+        messages: [{ meta: cloneMeta, data: encodedTile }],
+      };
+      const tileZipPath = `Index/Tables/Tile-${tileArchiveId}.iwa`;
+      iwaCache.set(tileZipPath, [newArchive]);
+    }
+
+    const tileRefEntry: ProtoMessage = [];
+    tileRefEntry[1] = [{ type: 0, data: writeVarint49(tileIdx) }];
+    tileRefEntry[2] = [{ type: 2, data: writeTspReference(tileArchiveId) }];
+    tileRefsField.push({ type: 2, data: writeShallow(tileRefEntry) });
+
+    const treeNode: ProtoMessage = [];
+    treeNode[1] = [{ type: 0, data: writeVarint49(rowStart) }];
+    treeNode[2] = [{ type: 0, data: writeVarint49(tileIdx) }];
+    rowTileTreeNodes.push({ type: 2, data: writeShallow(treeNode) });
   }
-  tileEntryTemplate.data = writeShallow(tl);
-  store[3][0].data = writeShallow(tile);
+
+  tileWrap[1] = tileRefsField;
+  tileWrap[2] = [{ type: 0, data: writeVarint49(MAX_TILE_SIZE) }];
+  tileWrap[3] = [{ type: 0, data: writeVarint49(1) }];
+  store[3][0].data = writeShallow(tileWrap);
+  store[7] = [{ type: 0, data: writeVarint49(numTiles) }];
+  store[9] = [{ type: 2, data: writeShallow([[], rowTileTreeNodes]) }];
+
+  // Register any additional Tiles (>256 rows) in PackageMetadata (Index/Metadata.iwa)
+  if (newTileIds.length > 0) {
+    pkgMeta[1] = [{ type: 0, data: writeVarint49(nextObjectId - 1) }];
+    if (!pkgMeta[3]) pkgMeta[3] = [];
+
+    let calcEngineCompIdx = -1;
+    pkgMeta[3].forEach((compField, idx) => {
+      const compPb = parseShallow(compField.data);
+      const pref = compPb[2]?.[0] ? new TextDecoder().decode(compPb[2][0].data) : '';
+      if (pref === 'CalculationEngine') calcEngineCompIdx = idx;
+    });
+
+    for (const tileArchiveId of newTileIds) {
+      const compInfo: ProtoMessage = [];
+      compInfo[1] = [{ type: 0, data: writeVarint49(tileArchiveId) }];
+      compInfo[2] = [{ type: 2, data: encodeUtf8('Tables/Tile') }];
+      compInfo[3] = [{ type: 2, data: encodeUtf8(`Tables/Tile-${tileArchiveId}`) }];
+      compInfo[4] = [{ type: 2, data: writePackedVarints([2, 0, 0]) }];
+      compInfo[5] = [{ type: 2, data: writePackedVarints([2, 0, 0]) }];
+      compInfo[10] = [{ type: 0, data: writeVarint49(0) }];
+      compInfo[12] = [{ type: 0, data: writeVarint49(1) }];
+      pkgMeta[3].push({ type: 2, data: writeShallow(compInfo) });
+
+      if (calcEngineCompIdx >= 0) {
+        const calcComp = parseShallow(pkgMeta[3][calcEngineCompIdx].data);
+        if (!calcComp[6]) calcComp[6] = [];
+        const extRef: ProtoMessage = [];
+        extRef[1] = [{ type: 0, data: writeVarint49(tileArchiveId) }];
+        calcComp[6].push({ type: 2, data: writeShallow(extRef) });
+        pkgMeta[3][calcEngineCompIdx].data = writeShallow(calcComp);
+      }
+    }
+    metadataLoaded.packet.messages[0].data = writeShallow(pkgMeta);
+  }
 
   pb[4][0].data = writeShallow(store);
   modelLoaded.packet.messages[0].data = writeShallow(pb);
-  const compressedModel = compressIwaFile(writeIwaFile(modelLoaded.archives));
-  modelLoaded.entry.content = compressedModel as unknown as number[];
-  modelLoaded.entry.size = compressedModel.length;
 
-  const zipBytes = CFB_LIB.write(cfb, { type: 'buffer', fileType: 'zip', compression: true });
-  return Buffer.from(zipBytes);
+  // Flush all modified or created IWA files back into fileMap
+  for (const [zipPath, archives] of iwaCache.entries()) {
+    fileMap.set(zipPath, Buffer.from(compressIwaFile(writeIwaFile(archives))));
+  }
+
+  // Package cleanly into standard PKZIP via buildZipArchive
+  const zipEntries = Array.from(fileMap.entries()).map(([name, data]) => ({ name, data }));
+  return buildZipArchive(zipEntries);
 }
 
 export interface NumbersInternalsSummary {
@@ -766,17 +839,28 @@ export interface NumbersInternalsSummary {
   sstNextListId: number;
   sstCount: number;
   sstMinId: number;
+  tileCount: number;
   tileStorageVersion: number | null;
   tileStorageFlag: number | null;
   tileRowVersions: number[];
   wideOffsetRowCount: number;
+  hasPropertiesPlist: boolean;
+  hasBuildVersionHistory: boolean;
+  hasDocumentIdentifier: boolean;
+  hasSheetJsMarker: boolean;
+  calcEngineBytes: number;
 }
 
 export function inspectNumbersInternals(buf: Buffer): NumbersInternalsSummary {
   const cfb = CFB_LIB.read(buf, { type: 'buffer' });
   const archivesById = new Map<number, IwaArchive>();
+  const zipPaths = new Set<string>();
+
   cfb.FileIndex.forEach((fi: { type: number; name: string; content: number[] | Uint8Array }, idx: number) => {
-    if (fi.type !== 2 || !/\.iwa$/i.test(fi.name)) return;
+    if (fi.type !== 2) return;
+    const rel = (cfb.FullPaths[idx] || '').replace(/^Root Entry\//, '');
+    zipPaths.add(rel);
+    if (!/\.iwa$/i.test(fi.name)) return;
     const raw = decompressIwaFile(new Uint8Array(fi.content));
     for (const ar of parseIwaFile(raw)) {
       archivesById.set(ar.id, ar);
@@ -806,19 +890,30 @@ export function inspectNumbersInternals(buf: Buffer): NumbersInternalsSummary {
   const sstIds = (sstPb[3] || []).map((entry) => varintToI32(parseShallow(entry.data)[1][0].data));
 
   const tileWrap = parseShallow(store[3][0].data);
-  const tl = parseShallow(tileWrap[1][0].data);
-  const tileRef = parseTspReference(tl[2][0].data);
-  const tilePb = parseShallow(archivesById.get(tileRef)!.messages[0].data);
-
+  const tileEntries = tileWrap[1] || [];
   const tileRowVersions: number[] = [];
   let wideOffsetRowCount = 0;
-  for (const rowField of tilePb[5] || []) {
-    const tri = parseShallow(rowField.data);
-    tileRowVersions.push(tri[5]?.[0] ? varintToI32(tri[5][0].data) : 0);
-    if (tri[8]?.[0] && varintToI32(tri[8][0].data) === 1) {
-      wideOffsetRowCount++;
+  let firstTileVersion: number | null = null;
+  let firstTileFlag: number | null = null;
+
+  for (let tIdx = 0; tIdx < tileEntries.length; tIdx++) {
+    const tl = parseShallow(tileEntries[tIdx].data);
+    const tileRef = parseTspReference(tl[2][0].data);
+    const tilePb = parseShallow(archivesById.get(tileRef)!.messages[0].data);
+    if (tIdx === 0) {
+      firstTileVersion = tilePb[6]?.[0] ? varintToI32(tilePb[6][0].data) : null;
+      firstTileFlag = tilePb[7]?.[0] ? varintToI32(tilePb[7][0].data) : null;
+    }
+    for (const rowField of tilePb[5] || []) {
+      const tri = parseShallow(rowField.data);
+      tileRowVersions.push(tri[5]?.[0] ? varintToI32(tri[5][0].data) : 0);
+      if (tri[8]?.[0] && varintToI32(tri[8][0].data) === 1) {
+        wideOffsetRowCount++;
+      }
     }
   }
+
+  const calcEngineArchive = archivesById.get(904977);
 
   return {
     sheetName,
@@ -830,10 +925,15 @@ export function inspectNumbersInternals(buf: Buffer): NumbersInternalsSummary {
     sstNextListId: sstPb[2]?.[0] ? varintToI32(sstPb[2][0].data) : 0,
     sstCount: sstIds.length,
     sstMinId: sstIds.length > 0 ? Math.min(...sstIds) : 0,
-    tileStorageVersion: tilePb[6]?.[0] ? varintToI32(tilePb[6][0].data) : null,
-    tileStorageFlag: tilePb[7]?.[0] ? varintToI32(tilePb[7][0].data) : null,
+    tileCount: tileEntries.length,
+    tileStorageVersion: firstTileVersion,
+    tileStorageFlag: firstTileFlag,
     tileRowVersions,
     wideOffsetRowCount,
+    hasPropertiesPlist: zipPaths.has('Metadata/Properties.plist'),
+    hasBuildVersionHistory: zipPaths.has('Metadata/BuildVersionHistory.plist'),
+    hasDocumentIdentifier: zipPaths.has('Metadata/DocumentIdentifier'),
+    hasSheetJsMarker: buf.includes(Buffer.from('Sh33tJ5')),
+    calcEngineBytes: calcEngineArchive?.messages[0]?.data?.length ?? 0,
   };
 }
-

@@ -29,7 +29,7 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [currentVersion, setCurrentVersion] = useState('2.6.0');
+  const [currentVersion, setCurrentVersion] = useState('2.7.0');
   const [versionInfo, setVersionInfo] = useState<VersionCheckResult | null>(null);
   const [checkingVersion, setCheckingVersion] = useState(false);
   const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false);
