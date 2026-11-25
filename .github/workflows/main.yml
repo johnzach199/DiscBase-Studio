@@ -29,6 +29,8 @@ jobs:
             builder_args: --win portable
 
     runs-on: ${{ matrix.os }}
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
 
     steps:
       - name: Checkout repository
@@ -68,18 +70,50 @@ jobs:
           fi
 
       - name: Ensure packaging metadata & electron-builder config
+        id: meta
         shell: bash
         run: |
           node -e '
             const fs = require("fs");
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             if (!pkg.name || pkg.name === "react-example") pkg.name = "discbase-studio";
-            if (!pkg.version || pkg.version === "0.0.0" || pkg.version === "1.0.0") pkg.version = "2.0.0";
+            const githubRef = process.env.GITHUB_REF || "";
+            const githubRefName = process.env.GITHUB_REF_NAME || "";
+            const normalizeSemver3 = (raw) => {
+              const cleaned = String(raw || "2.6.0").trim().replace(/^v/i, "");
+              const parts = cleaned.split(".");
+              const major = parts[0] || "2";
+              const minor = parts[1] || "6";
+              const patch = parts[2] || "0";
+              return `${major}.${minor}.${patch}`;
+            };
+            const appVersion = githubRef.startsWith("refs/tags/") && githubRefName
+              ? normalizeSemver3(githubRefName)
+              : normalizeSemver3(pkg.version || "2.6.0");
+            const releaseTag = githubRef.startsWith("refs/tags/") && githubRefName
+              ? githubRefName
+              : ("v" + appVersion.replace(/\.0$/, ""));
+            pkg.version = appVersion;
+            const repoSlug = process.env.GITHUB_REPOSITORY || "johnzach199/DiscBase-Studio";
+            if (repoSlug) {
+              pkg.repository = {
+                type: "git",
+                url: "https://github.com/" + repoSlug
+              };
+            }
             if (!pkg.description) pkg.description = "Album & Song Catalog Workstation with XLSX import/export and SQLite + MySQL Server integration.";
             if (!pkg.author || (typeof pkg.author === "string" && !pkg.author.includes("@"))) {
               pkg.author = "DiscBase Studio <support@discbase.local>";
             }
             fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+            fs.writeFileSync("build-info.json", JSON.stringify({
+              version: appVersion,
+              repo: repoSlug,
+              builtAt: new Date().toISOString()
+            }, null, 2) + "\n");
+            if (process.env.GITHUB_OUTPUT) {
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_tag=${releaseTag}\n`);
+            }
 
             const winIcon = fs.existsSync("build-resources/icon.ico")
               ? "build-resources/icon.ico"
@@ -119,6 +153,7 @@ jobs:
                 "server/schema.sql",
                 "server/schema.sqlite.sql",
                 "server/sql-wasm.wasm",
+                "build-info.json",
                 "package.json"
               ],
               extraMetadata: {
@@ -339,8 +374,8 @@ jobs:
       - name: Upload executables directly to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v2.0.{0}', github.run_number) }}
-          name: DiscBase Studio ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v2.0.{0}', github.run_number) }}
+          tag_name: ${{ needs.build-executables.outputs.release_tag }}
+          name: DiscBase Studio ${{ needs.build-executables.outputs.release_tag }}
           body: |
             ### Downloads
             - **Linux / Fedora**: `.AppImage` (`chmod +x *.AppImage` then launch)
