@@ -1234,3 +1234,73 @@ export function buildWorkbookMatrix(album: Album): (string | number | null)[][] 
 
   return rows;
 }
+
+export function parseDbTimestamp(value?: string | null): Date | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+
+  // Normalize SQLite UTC format ("YYYY-MM-DD HH:MM:SS" or with fractional secs) to ISO UTC
+  let normalized = raw;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)) {
+    normalized = `${raw.replace(' ', 'T')}Z`;
+  }
+
+  const dt = new Date(normalized);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+export function formatCatalogDateTime(value?: string | null, locale?: string): string {
+  const dt = parseDbTimestamp(value);
+  if (!dt) return '—';
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(dt);
+  } catch {
+    return dt.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}
+
+export function getAlbumActivityInfo(
+  createdAt?: string | null,
+  updatedAt?: string | null,
+  locale?: string
+): {
+  kind: 'Imported' | 'Updated';
+  formatted: string;
+  importedFormatted: string;
+  updatedFormatted: string;
+  tooltip: string;
+} | null {
+  const createdDt = parseDbTimestamp(createdAt);
+  const updatedDt = parseDbTimestamp(updatedAt);
+  const primaryDt = updatedDt || createdDt;
+  if (!primaryDt) return null;
+
+  const isUpdated =
+    Boolean(createdDt && updatedDt) &&
+    updatedDt!.getTime() - createdDt!.getTime() > 2000;
+
+  const kind: 'Imported' | 'Updated' = isUpdated ? 'Updated' : createdDt ? 'Imported' : 'Updated';
+  const importedFormatted = formatCatalogDateTime(createdAt, locale);
+  const updatedFormatted = formatCatalogDateTime(updatedAt || createdAt, locale);
+  const formatted = formatCatalogDateTime(primaryDt.toISOString(), locale);
+  const tooltip =
+    createdDt && updatedDt
+      ? `Imported: ${importedFormatted} · Last modified: ${updatedFormatted}`
+      : `${kind}: ${formatted}`;
+
+  return {
+    kind,
+    formatted,
+    importedFormatted,
+    updatedFormatted,
+    tooltip,
+  };
+}
+

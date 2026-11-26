@@ -22,7 +22,7 @@ interface BuildInfoJson {
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const DEFAULT_APP_VERSION = '2.7.0';
+const DEFAULT_APP_VERSION = '2.8.0';
 const DEFAULT_GITHUB_REPO = 'johnzach199/DiscBase-Studio';
 
 export class VersionService {

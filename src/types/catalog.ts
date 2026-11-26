@@ -79,6 +79,7 @@ export interface AlbumSummary {
   pot_pouri_count: number;
   musician_count: number;
   disc_count?: number;
+  created_at?: string;
   updated_at?: string;
 }
 

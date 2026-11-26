@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowUp,
   CheckCircle2,
+  Clock,
   Columns3,
   Copy,
   Disc,
@@ -23,6 +24,7 @@ import {
   computeAlbumStats,
   computeSongSeconds,
   createEmptySong,
+  getAlbumActivityInfo,
   safeHttpUrl,
   validateAlbum,
 } from '../utils/catalogMath';
@@ -633,6 +635,7 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
 
   const activeLyricsSong =
     lyricsModalSongIdx !== null ? album.songs[lyricsModalSongIdx] ?? null : null;
+  const activity = getAlbumActivityInfo(album.created_at, album.updated_at);
 
   return (
     <form onSubmit={handleFormSubmit} className="space-y-6">
@@ -664,6 +667,12 @@ export const AlbumSheetEditor: React.FC<AlbumSheetEditorProps> = ({
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               General album metadata, multi-CD spreadsheet grid with timestamped lyrics, and session musicians
             </p>
+            {album.id && activity && (
+              <p className="mt-1 inline-flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono-tabular">
+                <Clock className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                <span>{activity.tooltip}</span>
+              </p>
+            )}
           </div>
         </div>
 

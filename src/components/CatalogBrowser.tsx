@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Database, Download, ExternalLink, FileSpreadsheet, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
 import type { AlbumSummary, DbStatus } from '../types/catalog';
+import { getAlbumActivityInfo } from '../utils/catalogMath';
 
 interface CatalogBrowserProps {
   albums: AlbumSummary[];
@@ -274,12 +275,14 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
                   <th className="py-3 px-4 whitespace-nowrap">Category</th>
                   <th className="py-3 px-4 text-right whitespace-nowrap">Tracks</th>
                   <th className="py-3 px-4 text-right whitespace-nowrap">Album Time</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Last Modified</th>
                   <th className="py-3 px-4 text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-sm">
                 {filteredAlbums.map((album) => {
                   const isConfirming = confirmDeleteId === album.id;
+                  const activity = getAlbumActivityInfo(album.created_at, album.updated_at);
                   return (
                     <tr
                       key={album.id}
@@ -322,6 +325,23 @@ export const CatalogBrowser: React.FC<CatalogBrowserProps> = ({
                       </td>
                       <td className="py-2.5 px-4 text-right font-mono-tabular text-slate-800 dark:text-slate-200 whitespace-nowrap">
                         {album.album_time}
+                      </td>
+                      <td
+                        className="py-2.5 px-4 whitespace-nowrap text-xs text-slate-600 dark:text-slate-400"
+                        title={activity?.tooltip}
+                      >
+                        {activity ? (
+                          <div className="leading-tight">
+                            <div className="font-mono-tabular text-slate-700 dark:text-slate-300">
+                              {activity.formatted}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500">
+                              {activity.kind}
+                            </div>
+                          </div>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-right whitespace-nowrap">
                         {isConfirming ? (

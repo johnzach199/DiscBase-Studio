@@ -15,8 +15,11 @@ import {
   createSampleTemplateAlbum,
   deduplicateAlbumBatch,
   findDuplicateAlbum,
+  formatCatalogDateTime,
   formatSecondsAsTime,
+  getAlbumActivityInfo,
   matchesAlbumSearch,
+  parseDbTimestamp,
   parseDelimitedText,
   parseSpreadsheetRows,
   parseWorkbookSheetsToAlbums,
@@ -611,4 +614,25 @@ test('CatalogDatabase SQLite supports replace-existing deduplication and migrate
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('parseDbTimestamp, formatCatalogDateTime, and getAlbumActivityInfo handle SQLite UTC and ISO timestamps', () => {
+  const sqliteDt = parseDbTimestamp('2026-11-26 12:30:00');
+  assert.ok(sqliteDt);
+  assert.equal(sqliteDt.toISOString(), '2026-11-26T12:30:00.000Z');
+  assert.equal(parseDbTimestamp(''), null);
+  assert.equal(parseDbTimestamp('not-a-date'), null);
+  assert.equal(formatCatalogDateTime(''), '—');
+
+  const importedOnly = getAlbumActivityInfo('2026-11-26T12:30:00.000Z', '2026-11-26T12:30:01.000Z', 'en-US');
+  assert.ok(importedOnly);
+  assert.equal(importedOnly.kind, 'Imported');
+  assert.ok(importedOnly.tooltip.includes('Imported:'));
+  assert.ok(importedOnly.tooltip.includes('Last modified:'));
+
+  const updatedLater = getAlbumActivityInfo('2026-11-26T12:30:00.000Z', '2026-11-26T14:45:00.000Z', 'en-US');
+  assert.ok(updatedLater);
+  assert.equal(updatedLater.kind, 'Updated');
+  assert.notEqual(updatedLater.importedFormatted, updatedLater.updatedFormatted);
+});
+
 

@@ -277,6 +277,14 @@ export class CatalogDatabase {
       return colNames;
     };
 
+    const albumCols = getCols('albums');
+    if (albumCols.size > 0 && !albumCols.has('created_at')) {
+      db.exec("ALTER TABLE albums ADD COLUMN created_at TEXT NOT NULL DEFAULT '';");
+    }
+    if (albumCols.size > 0 && !albumCols.has('updated_at')) {
+      db.exec("ALTER TABLE albums ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';");
+    }
+
     const songCols = getCols('songs');
     if (!songCols.has('disc_number')) {
       db.exec('ALTER TABLE songs ADD COLUMN disc_number INTEGER NOT NULL DEFAULT 1;');
@@ -289,6 +297,20 @@ export class CatalogDatabase {
     if (musicianCols.size > 0 && !musicianCols.has('tracks')) {
       db.exec('ALTER TABLE album_musicians ADD COLUMN tracks TEXT NULL DEFAULT NULL;');
     }
+  }
+
+  private normalizeSqlTimestamp(value: unknown): string | undefined {
+    if (value === null || value === undefined) return undefined;
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+    }
+    const raw = String(value).trim();
+    if (!raw) return undefined;
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raw)
+      ? `${raw.replace(' ', 'T')}Z`
+      : raw;
+    const dt = new Date(normalized);
+    return Number.isNaN(dt.getTime()) ? raw : dt.toISOString();
   }
 
   private sqliteAll<T = Record<string, unknown>>(
@@ -454,6 +476,9 @@ export class CatalogDatabase {
 
   private insertAlbumIntoSqlite(clean: Album): number {
     if (!this.sqliteDb) throw new Error('SQLite database is not initialized.');
+    const nowIso = new Date().toISOString();
+    const createdAt = this.normalizeSqlTimestamp(clean.created_at) || nowIso;
+    const updatedAt = this.normalizeSqlTimestamp(clean.updated_at) || createdAt;
     this.sqliteDb.exec('BEGIN TRANSACTION;');
     try {
       this.sqliteRun(
@@ -461,8 +486,9 @@ export class CatalogDatabase {
           barcode, catalog_number, label, phonographic_company, format,
           album_artist, featured_artists, album_title, album_time, total_seconds,
           release_date, return_date, album_music_category, producer, production_company,
-          print_design, cd_digital_playlist_link, physical_product_web_link, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          print_design, cd_digital_playlist_link, physical_product_web_link, notes,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           clean.barcode,
           clean.catalog_number,
@@ -483,6 +509,8 @@ export class CatalogDatabase {
           clean.cd_digital_playlist_link,
           clean.physical_product_web_link,
           clean.notes,
+          createdAt,
+          updatedAt,
         ]
       );
       const idRows = this.sqliteAll<{ id: number }>('SELECT last_insert_rowid() AS id');
@@ -1280,8 +1308,8 @@ export class CatalogDatabase {
       cd_digital_playlist_link: String(a.cd_digital_playlist_link || ''),
       physical_product_web_link: String(a.physical_product_web_link || ''),
       notes: String(a.notes || ''),
-      created_at: a.created_at ? String(a.created_at) : undefined,
-      updated_at: a.updated_at ? String(a.updated_at) : undefined,
+      created_at: this.normalizeSqlTimestamp(a.created_at),
+      updated_at: this.normalizeSqlTimestamp(a.updated_at),
       musicians: mRows.map((m) => ({
         id: Number(m.id),
         role: String(m.role || ''),
@@ -1332,7 +1360,7 @@ export class CatalogDatabase {
         `SELECT 
           a.id, a.barcode, a.catalog_number, a.label, a.format,
           a.album_artist, a.album_title, a.album_time, a.total_seconds,
-          a.release_date, a.album_music_category, a.producer, a.updated_at,
+          a.release_date, a.album_music_category, a.producer, a.created_at, a.updated_at,
           a.featured_artists, a.phonographic_company, a.production_company, a.print_design, a.notes,
           COUNT(DISTINCT s.id) AS track_count,
           COALESCE(SUM(CASE WHEN s.full_track = 1 THEN 1 ELSE 0 END), 0) AS full_track_count,
@@ -1362,7 +1390,8 @@ export class CatalogDatabase {
         pot_pouri_count: Number(r.pot_pouri_count || 0),
         musician_count: Number(r.musician_count || 0),
         disc_count: Math.max(1, Number(r.disc_count || 1)),
-        updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : undefined,
+        created_at: this.normalizeSqlTimestamp(r.created_at),
+        updated_at: this.normalizeSqlTimestamp(r.updated_at),
       }));
       if (!q) return mapped;
 
@@ -1459,7 +1488,7 @@ export class CatalogDatabase {
         `SELECT
           a.id, a.barcode, a.catalog_number, a.label, a.format,
           a.album_artist, a.album_title, a.album_time, a.total_seconds,
-          a.release_date, a.album_music_category, a.producer, a.updated_at,
+          a.release_date, a.album_music_category, a.producer, a.created_at, a.updated_at,
           a.featured_artists, a.phonographic_company, a.production_company, a.print_design, a.notes,
           COUNT(DISTINCT s.id) AS track_count,
           COALESCE(SUM(CASE WHEN s.full_track = 1 THEN 1 ELSE 0 END), 0) AS full_track_count,
@@ -1489,7 +1518,8 @@ export class CatalogDatabase {
         pot_pouri_count: Number(r.pot_pouri_count || 0),
         musician_count: Number(r.musician_count || 0),
         disc_count: Math.max(1, Number(r.disc_count || 1)),
-        updated_at: r.updated_at ? String(r.updated_at) : undefined,
+        created_at: this.normalizeSqlTimestamp(r.created_at),
+        updated_at: this.normalizeSqlTimestamp(r.updated_at),
       }));
       if (!q) return mapped;
 
@@ -1605,6 +1635,7 @@ export class CatalogDatabase {
           pot_pouri_count: stats.potPouriCount,
           musician_count: a.musicians.filter((m) => m.name || m.role).length,
           disc_count: stats.discCount,
+          created_at: a.created_at,
           updated_at: a.updated_at,
         };
       });
@@ -1840,7 +1871,8 @@ export class CatalogDatabase {
             barcode = ?, catalog_number = ?, label = ?, phonographic_company = ?, format = ?,
             album_artist = ?, featured_artists = ?, album_title = ?, album_time = ?, total_seconds = ?,
             release_date = ?, return_date = ?, album_music_category = ?, producer = ?, production_company = ?,
-            print_design = ?, cd_digital_playlist_link = ?, physical_product_web_link = ?, notes = ?
+            print_design = ?, cd_digital_playlist_link = ?, physical_product_web_link = ?, notes = ?,
+            updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
           [
             clean.barcode,
@@ -1931,6 +1963,7 @@ export class CatalogDatabase {
       const existing = this.sqliteAll<{ id: number }>('SELECT id FROM albums WHERE id = ?', [id]);
       if (existing.length === 0) return null;
 
+      const nowIso = new Date().toISOString();
       this.sqliteDb.exec('BEGIN TRANSACTION;');
       try {
         this.sqliteRun(
@@ -1939,7 +1972,7 @@ export class CatalogDatabase {
             album_artist = ?, featured_artists = ?, album_title = ?, album_time = ?, total_seconds = ?,
             release_date = ?, return_date = ?, album_music_category = ?, producer = ?, production_company = ?,
             print_design = ?, cd_digital_playlist_link = ?, physical_product_web_link = ?, notes = ?,
-            updated_at = datetime('now')
+            updated_at = ?
           WHERE id = ?`,
           [
             clean.barcode,
@@ -1961,6 +1994,7 @@ export class CatalogDatabase {
             clean.cd_digital_playlist_link,
             clean.physical_product_web_link,
             clean.notes,
+            nowIso,
             id,
           ]
         );

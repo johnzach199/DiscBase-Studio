@@ -41,6 +41,8 @@ test('CatalogDatabase initializes SQLite 3 file, supports CRUD & search, and per
 
     const created = await db1.createAlbum(draft);
     assert.ok(created.id && created.id > 0);
+    assert.ok(created.created_at && created.created_at.endsWith('Z'));
+    assert.ok(created.updated_at && created.updated_at.endsWith('Z'));
     assert.equal(created.total_seconds, 255);
     assert.equal(created.album_time, '04:15');
     assert.equal(created.musicians.length, 2);
@@ -51,6 +53,8 @@ test('CatalogDatabase initializes SQLite 3 file, supports CRUD & search, and per
     const isrcHits = await db1.listAlbums('GRGM12699901');
     assert.equal(isrcHits.length, 1);
     assert.equal(isrcHits[0].catalog_number, 'GM 9999');
+    assert.ok(isrcHits[0].created_at && isrcHits[0].created_at.endsWith('Z'));
+    assert.ok(isrcHits[0].updated_at && isrcHits[0].updated_at.endsWith('Z'));
 
     const greekHits = await db1.listAlbums('καψαλης');
     assert.equal(greekHits.length, 1);
@@ -60,18 +64,23 @@ test('CatalogDatabase initializes SQLite 3 file, supports CRUD & search, and per
     assert.equal(titleHits.length, 1);
     assert.equal(titleHits[0].catalog_number, 'GM 9999');
 
-    // Update album
+    // Update album after a brief pause and verify updated_at advances while created_at stays fixed
+    await new Promise((resolve) => setTimeout(resolve, 15));
     created.album_title = 'ΕΝΗΜΕΡΩΜΕΝΟΣ ΔΙΣΚΟΣ';
     created.musicians[0].tracks = '1,2';
     const updated = await db1.updateAlbum(created.id!, created);
     assert.equal(updated?.album_title, 'ΕΝΗΜΕΡΩΜΕΝΟΣ ΔΙΣΚΟΣ');
     assert.equal(updated?.musicians[0].tracks, '1,2');
+    assert.equal(updated?.created_at, created.created_at);
+    assert.ok(updated?.updated_at && updated.updated_at > created.updated_at!);
 
     // Re-open database from disk to verify persistence
     const db2 = new CatalogDatabase(tmpDir);
     await db2.initialize();
     const loaded = await db2.getAlbum(created.id!);
     assert.equal(loaded?.album_title, 'ΕΝΗΜΕΡΩΜΕΝΟΣ ΔΙΣΚΟΣ');
+    assert.equal(loaded?.created_at, created.created_at);
+    assert.equal(loaded?.updated_at, updated?.updated_at);
     assert.equal(loaded?.songs[0].isrc_code, 'GRGM12699901');
     assert.equal(loaded?.musicians[0].tracks, '1,2');
     assert.equal(loaded?.musicians[1].tracks, null);
